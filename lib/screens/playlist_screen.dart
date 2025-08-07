@@ -38,7 +38,7 @@ class PlaylistScreen extends StatelessWidget {
                     }
                   },
                   itemBuilder: (BuildContext context) => [
-                    PopupMenuItem(
+                    const PopupMenuItem(
                       value: 'add_files',
                       child: Row(
                         children: [
@@ -48,7 +48,7 @@ class PlaylistScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-                    PopupMenuItem(
+                    const PopupMenuItem(
                       value: 'clear_all',
                       child: Row(
                         children: [
@@ -209,7 +209,7 @@ class PlaylistScreen extends StatelessWidget {
                   ),
                 SizedBox(width: 8),
                 PopupMenuButton<String>(
-                  icon: Icon(
+                  icon: const Icon(
                     Icons.more_vert,
                     color: Colors.white70,
                     size: 20,
@@ -220,13 +220,16 @@ class PlaylistScreen extends StatelessWidget {
                         controller.loadTrack(index);
                         controller.player.play();
                         break;
+                      case 'rename':
+                        _showRenameDialog(context, index, track);
+                        break;
                       case 'remove':
                         _showRemoveTrackDialog(context, index, track);
                         break;
                     }
                   },
                   itemBuilder: (BuildContext context) => [
-                    PopupMenuItem(
+                    const PopupMenuItem(
                       value: 'play',
                       child: Row(
                         children: [
@@ -237,7 +240,17 @@ class PlaylistScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-                    PopupMenuItem(
+                    const PopupMenuItem(
+                      value: 'rename',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit, color: Colors.white70, size: 20),
+                          SizedBox(width: 8),
+                          Text('Rename', style: TextStyle(fontSize: 14)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
                       value: 'remove',
                       child: Row(
                         children: [
@@ -328,6 +341,53 @@ class PlaylistScreen extends StatelessWidget {
               SizedBox(height: 10),
             ],
           ),
+        );
+      },
+    );
+  }
+
+  void _showRenameDialog(BuildContext context, int index, AudioTrack track) {
+    final TextEditingController controller =
+        TextEditingController(text: track.displayName);
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey.shade900,
+          title:
+              const Text('Rename Track', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: controller,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: 'Enter new name',
+              hintStyle: TextStyle(color: Colors.white54),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.deepPurpleAccent),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.deepPurpleAccent),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child:
+                  const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            ),
+            TextButton(
+              onPressed: () {
+                if (controller.text.trim().isNotEmpty) {
+                  this.controller.renameTrack(index, controller.text.trim());
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Save',
+                  style: TextStyle(color: Colors.deepPurpleAccent)),
+            ),
+          ],
         );
       },
     );

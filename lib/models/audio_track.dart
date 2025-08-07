@@ -1,7 +1,6 @@
-// models/audio_track.dart
 class AudioTrack {
   final String path;
-  final String fileName;
+  String fileName;
   final String? artist;
   final String? album;
   final Duration? duration;
@@ -15,7 +14,11 @@ class AudioTrack {
   });
 
   String get displayName => fileName.replaceAll(RegExp(r'\.[^.]*$'), '');
-
   String get artistAlbum =>
       '${artist ?? 'Unknown Artist'} • ${album ?? 'Unknown Album'}';
+
+  // Add rename method
+  void rename(String newName) {
+    fileName = newName;
+  }
 }

@@ -130,22 +130,46 @@ class AudioPlayerController extends ChangeNotifier {
   Future<void> pickFromPhotos() async {
     final ImagePicker picker = ImagePicker();
 
-    // This opens Photos app and allows video selection (which includes audio)
-    final XFile? file = await picker.pickVideo(source: ImageSource.gallery);
+    try {
+      // Only pick videos (which includes audio files)
+      final XFile? file = await picker.pickVideo(source: ImageSource.gallery);
 
-    if (file != null && _isAudioFile(file.name)) {
-      final newTrack = AudioTrack(
-        path: file.path,
-        fileName: file.name,
-        artist: 'Unknown Artist',
-        album: 'Unknown Album',
-      );
+      if (file != null) {
+        // Generate a better filename
+        final String fileName = _generateBetterFileName(file.name);
 
-      _playlist.add(newTrack);
-      if (_playlist.length == 1) {
-        _currentIndex = 0;
-        await loadTrack(0);
+        final newTrack = AudioTrack(
+          path: file.path,
+          fileName: fileName,
+          artist: 'Photos',
+          album: 'Media Library',
+        );
+
+        _playlist.add(newTrack);
+        if (_playlist.length == 1) {
+          _currentIndex = 0;
+          await loadTrack(0);
+        }
+        notifyListeners();
       }
+    } catch (e) {
+      print('Error picking from photos: $e');
+    }
+  }
+
+  String _generateBetterFileName(String originalName) {
+    // If it starts with image_picker, generate a better name
+    if (originalName.startsWith('image_picker')) {
+      final now = DateTime.now();
+      return 'Audio_${now.month}${now.day}_${now.hour}${now.minute}.m4a';
+    }
+    return originalName;
+  }
+
+  void renameTrack(int index, String newName) {
+    if (index >= 0 && index < _playlist.length) {
+      final extension = _playlist[index].fileName.split('.').last;
+      _playlist[index].rename('$newName.$extension');
       notifyListeners();
     }
   }
