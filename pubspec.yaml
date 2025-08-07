@@ -1,0 +1,26 @@
+name: audio_player_app
+description: A simple audio player with file upload and controls.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  just_audio: ^0.9.36
+  file_picker: ^8.1.2
+  permission_handler: ^11.3.1
+  audio_service: ^0.18.12
+  just_audio_background: ^0.0.1-beta.11
+  volume_controller: ^3.4.0
+  image_picker: ^1.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
