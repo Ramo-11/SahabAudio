@@ -252,6 +252,18 @@ class AudioPlayerController extends ChangeNotifier {
     }
   }
 
+  void addTrack(AudioTrack track) {
+    _playlist.add(track);
+
+    // If this is the first track, load it
+    if (_playlist.length == 1) {
+      _currentIndex = 0;
+      loadTrack(0);
+    }
+
+    notifyListeners();
+  }
+
   Future<void> playNext() async {
     if (_playlist.isEmpty) return;
 
@@ -375,7 +387,6 @@ class AudioPlayerController extends ChangeNotifier {
   void dispose() {
     _player.dispose();
     _sleepTimer?.cancel();
-    VolumeController.instance.removeListener(); // Clean up listener
-    super.dispose();
+    VolumeController.instance.removeListener();
   }
 }

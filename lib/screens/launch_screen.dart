@@ -1,7 +1,9 @@
 // screens/launch_screen.dart
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'dart:async';
-import 'audio_player_screen.dart';
+import 'playlist_screen.dart';
+import '../controllers/audio_player_controller.dart';
 
 class LaunchScreen extends StatefulWidget {
   @override
@@ -10,55 +12,57 @@ class LaunchScreen extends StatefulWidget {
 
 class _LaunchScreenState extends State<LaunchScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
+  late final AnimationController _animationController;
+  late final Animation<double> _fadeAnimation;
+  late final Animation<double> _scaleAnimation;
 
   @override
   void initState() {
     super.initState();
 
-    _controller = AnimationController(
-      duration: Duration(seconds: 2),
+    _animationController = AnimationController(
+      duration: Duration(seconds: 1),
       vsync: this,
     );
 
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Interval(0.0, 0.6, curve: Curves.easeInOut),
-    ));
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+          parent: _animationController,
+          curve: Interval(0.0, 0.6, curve: Curves.easeInOut)),
+    );
 
-    _scaleAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Interval(0.2, 0.8, curve: Curves.elasticOut),
-    ));
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(
+          parent: _animationController,
+          curve: Interval(0.2, 0.8, curve: Curves.elasticOut)),
+    );
 
-    _controller.forward();
+    _animationController.forward();
 
-    // Navigate to main app after 3 seconds
+    // Navigate to playlist after 3 seconds, using the shared controller from Provider
     Timer(Duration(seconds: 3), () {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              AudioPlayerScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-          transitionDuration: Duration(milliseconds: 800),
-        ),
-      );
+      if (mounted) {
+        final audioController =
+            Provider.of<AudioPlayerController>(context, listen: false);
+
+        Navigator.of(context).pushReplacement(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                PlaylistScreen(controller: audioController),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: Duration(milliseconds: 800),
+          ),
+        );
+      }
     });
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -80,7 +84,7 @@ class _LaunchScreenState extends State<LaunchScreen>
         ),
         child: Center(
           child: AnimatedBuilder(
-            animation: _controller,
+            animation: _animationController,
             builder: (context, child) {
               return FadeTransition(
                 opacity: _fadeAnimation,
@@ -95,7 +99,7 @@ class _LaunchScreenState extends State<LaunchScreen>
                         height: 120,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          gradient: const LinearGradient(
+                          gradient: LinearGradient(
                             colors: [
                               Colors.deepPurpleAccent,
                               Colors.purpleAccent,
@@ -111,7 +115,7 @@ class _LaunchScreenState extends State<LaunchScreen>
                             ),
                           ],
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.music_note,
                           size: 60,
                           color: Colors.white,
@@ -135,7 +139,7 @@ class _LaunchScreenState extends State<LaunchScreen>
 
                       // Tagline
                       const Text(
-                        'Premium Audio Experience',
+                        'The Better Audio App',
                         style: TextStyle(
                           color: Colors.white70,
                           fontSize: 16,

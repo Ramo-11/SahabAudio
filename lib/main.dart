@@ -1,6 +1,7 @@
 // main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'screens/launch_screen.dart';
 import 'controllers/audio_player_controller.dart';
 
@@ -17,12 +18,23 @@ class AudioPlayerApp extends StatefulWidget {
 class _AudioPlayerAppState extends State<AudioPlayerApp> {
   static const platform = MethodChannel('app.channel.shared.data');
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  late final AudioPlayerController _audioController;
 
   @override
   void initState() {
     super.initState();
+    _audioController = AudioPlayerController();
     _setupMethodChannel();
     _handleInitialSharedFiles();
+
+    // Register controller with shared file handler
+    SharedFileHandler.instance.registerController(_audioController);
+  }
+
+  @override
+  void dispose() {
+    SharedFileHandler.instance.unregisterController();
+    super.dispose();
   }
 
   void _setupMethodChannel() {
@@ -82,22 +94,25 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Sahab Audio Player',
-      navigatorKey: navigatorKey,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: Brightness.dark,
+    return ChangeNotifierProvider<AudioPlayerController>.value(
+      value: _audioController,
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Sahab Audio Player',
+        navigatorKey: navigatorKey,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.deepPurple,
+            brightness: Brightness.dark,
+          ),
+          useMaterial3: true,
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+          ),
         ),
-        useMaterial3: true,
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
+        home: LaunchScreen(),
       ),
-      home: LaunchScreen(),
     );
   }
 }

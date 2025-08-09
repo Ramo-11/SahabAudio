@@ -1,4 +1,6 @@
 // screens/audio_player_screen.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import '../controllers/audio_player_controller.dart';
@@ -7,9 +9,14 @@ import '../widgets/control_buttons_widget.dart';
 import '../widgets/progress_slider_widget.dart';
 import '../widgets/volume_speed_controls.dart';
 import 'playlist_screen.dart';
-import '../main.dart'; // Import main.dart to access SharedFileHandler
+import '../main.dart';
 
 class AudioPlayerScreen extends StatefulWidget {
+  // ✅ Require the shared controller
+  final AudioPlayerController controller;
+  const AudioPlayerScreen({Key? key, required this.controller})
+      : super(key: key);
+
   @override
   _AudioPlayerScreenState createState() => _AudioPlayerScreenState();
 }
@@ -19,11 +26,14 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen>
   late AudioPlayerController _controller;
   late AnimationController _rotationController;
   late AnimationController _waveController;
+  StreamSubscription? _playerStateSubscription;
 
   @override
   void initState() {
     super.initState();
-    _controller = AudioPlayerController();
+    // ✅ Use the injected controller instead of creating a new one
+    _controller = widget.controller;
+
     _rotationController = AnimationController(
       duration: Duration(seconds: 20),
       vsync: this,
@@ -34,26 +44,29 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen>
     );
     _setupAnimations();
 
-    // Register controller with the shared file handler
+    // Keep your shared file handler behavior
     SharedFileHandler.instance.registerController(_controller);
   }
 
   void _setupAnimations() {
-    _controller.player.playerStateStream.listen((state) {
-      if (state.playing) {
-        _rotationController.repeat();
-        _waveController.repeat(reverse: true);
-      } else {
-        _rotationController.stop();
-        _waveController.stop();
+    _playerStateSubscription =
+        _controller.player.playerStateStream.listen((state) {
+      if (mounted) {
+        if (state.playing) {
+          _rotationController.repeat();
+          _waveController.repeat(reverse: true);
+        } else {
+          _rotationController.stop();
+          _waveController.stop();
+        }
       }
     });
   }
 
   @override
   void dispose() {
+    _playerStateSubscription?.cancel(); // Cancel the stream subscription
     SharedFileHandler.instance.unregisterController();
-    _controller.dispose();
     _rotationController.dispose();
     _waveController.dispose();
     super.dispose();
