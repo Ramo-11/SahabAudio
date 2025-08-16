@@ -1,4 +1,5 @@
 // controllers/audio_player_controller.dart
+import 'package:audio_player_app/services/storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:file_picker/file_picker.dart';
@@ -38,6 +39,63 @@ class AudioPlayerController extends ChangeNotifier {
   AudioPlayerController() {
     _setupAudioPlayer();
     _setupSystemVolumeListener();
+    _loadSavedData();
+  }
+
+  Future<void> _loadSavedData() async {
+    try {
+      // Load playlist
+      final savedPlaylist = await StorageService.loadPlaylist();
+      if (savedPlaylist.isNotEmpty) {
+        _playlist = savedPlaylist;
+
+        // Load current index
+        final savedIndex = await StorageService.loadCurrentIndex();
+        _currentIndex = savedIndex.clamp(0, _playlist.length - 1);
+
+        // Load the current track
+        await loadTrack(_currentIndex);
+      }
+
+      // Load settings
+      final settings = await StorageService.loadSettings();
+      if (settings != null) {
+        _volume = settings['volume'] ?? 0.8;
+        _speed = settings['speed'] ?? 1.0;
+        _isShuffleEnabled = settings['isShuffleEnabled'] ?? false;
+
+        final loopModeString = settings['loopMode'] ?? 'off';
+        _loopMode = loopModeString == 'one'
+            ? LoopMode.one
+            : loopModeString == 'all'
+                ? LoopMode.all
+                : LoopMode.off;
+
+        // Apply loaded settings
+        _player.setVolume(_volume);
+        _player.setSpeed(_speed);
+        _player.setLoopMode(_loopMode);
+      }
+
+      notifyListeners();
+    } catch (e) {
+      print('Error loading saved data: $e');
+    }
+  }
+
+  Future<void> _saveData() async {
+    try {
+      await StorageService.savePlaylist(_playlist);
+      await StorageService.saveCurrentIndex(_currentIndex);
+      await StorageService.saveSettings(
+        volume: _volume,
+        speed: _speed,
+        isShuffleEnabled: _isShuffleEnabled,
+        loopMode: _loopMode.toString().split('.').last,
+      );
+    } catch (e) {
+      print('Error saving data: $e');
+    }
   }
 
   void _setupAudioPlayer() async {
@@ -247,6 +305,7 @@ class AudioPlayerController extends ChangeNotifier {
       );
 
       notifyListeners();
+      _saveData();
     } catch (e) {
       print('Error loading audio: $e');
     }
@@ -262,6 +321,7 @@ class AudioPlayerController extends ChangeNotifier {
     }
 
     notifyListeners();
+    _saveData();
   }
 
   Future<void> playNext() async {
@@ -291,6 +351,7 @@ class AudioPlayerController extends ChangeNotifier {
   void toggleShuffle() {
     _isShuffleEnabled = !_isShuffleEnabled;
     notifyListeners();
+    _saveData();
   }
 
   void toggleLoop() {
@@ -307,6 +368,7 @@ class AudioPlayerController extends ChangeNotifier {
     }
     _player.setLoopMode(_loopMode);
     notifyListeners();
+    _saveData();
   }
 
   void setSpeed(double speed) {
@@ -324,6 +386,7 @@ class AudioPlayerController extends ChangeNotifier {
       print('Error setting system volume: $e');
     }
     notifyListeners();
+    _saveData();
   }
 
   void setSleepTimer(Duration duration) {
@@ -364,6 +427,7 @@ class AudioPlayerController extends ChangeNotifier {
     }
 
     notifyListeners();
+    _saveData();
   }
 
   void clearPlaylist() {
@@ -371,6 +435,7 @@ class AudioPlayerController extends ChangeNotifier {
     _currentIndex = 0;
     _player.stop();
     notifyListeners();
+    _saveData();
   }
 
   String formatDuration(Duration duration) {

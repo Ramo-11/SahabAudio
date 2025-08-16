@@ -4,6 +4,7 @@ import '../controllers/audio_player_controller.dart';
 import '../models/audio_track.dart';
 import './audio_edit_screen.dart';
 import './audio_player_screen.dart';
+import 'recording_screen.dart';
 
 // Simple folder model
 class PlaylistFolder {
@@ -1038,6 +1039,37 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                   ),
                 ),
               SizedBox(height: 20),
+
+              // Add this after the Photos ListTile in _showFileSourceOptions:
+
+// Voice Recording
+              ListTile(
+                leading: Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.mic, color: Colors.red, size: 24),
+                ),
+                title: Text('Voice Recording',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500)),
+                subtitle: Text('Record audio directly in app',
+                    style: TextStyle(color: Colors.white70, fontSize: 14)),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          RecordingScreen(controller: widget.controller),
+                    ),
+                  );
+                },
+              ),
 
               // Files App
               ListTile(

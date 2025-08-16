@@ -243,6 +243,7 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
       }
 
       // Build FFmpeg filter
+      await widget.controller.player.stop();
       String selectFilter = await _buildFilterComplex(mergedCuts);
 
       if (selectFilter.isEmpty) {
@@ -285,7 +286,10 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
             await tempFile.delete();
 
             // Reload the track in player
+            await Future.delayed(
+                Duration(milliseconds: 500)); // Give file system time
             await widget.controller.loadTrack(widget.controller.currentIndex);
+            // await widget.controller.loadTrack(widget.controller.currentIndex);
 
             if (mounted) {
               Navigator.pop(context);
@@ -524,290 +528,295 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
       ),
       body: Stack(
         children: [
-          Column(
-            children: [
-              // Loading indicator if not initialized
-              if (!_isInitialized)
-                LinearProgressIndicator(
-                  color: Colors.deepPurpleAccent,
-                  backgroundColor: Colors.white12,
-                ),
-
-              // Waveform visualization
-              Expanded(
-                child: Container(
-                  margin: EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white12),
+          SingleChildScrollView(
+            child: Column(
+              children: [
+                // Loading indicator if not initialized
+                if (!_isInitialized)
+                  LinearProgressIndicator(
+                    color: Colors.deepPurpleAccent,
+                    backgroundColor: Colors.white12,
                   ),
-                  child: Stack(
-                    children: [
-                      if (_isInitialized) _buildWaveformView(),
-                      if (_duration.inMilliseconds > 0)
-                        Positioned(
-                          left: (MediaQuery.of(context).size.width - 32) *
-                              (_position.inMilliseconds /
-                                  _duration.inMilliseconds),
-                          top: 0,
-                          bottom: 0,
-                          child: Container(
-                            width: 2,
-                            color: Colors.white,
-                          ),
-                        ),
-                      if (!_isInitialized)
-                        Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CircularProgressIndicator(
-                                  color: Colors.deepPurpleAccent),
-                              SizedBox(height: 16),
-                              Text('Loading audio...',
-                                  style: TextStyle(color: Colors.white54)),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
 
-              // Time and controls
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 20),
-                child: Column(
-                  children: [
-                    // Time labels
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                // Waveform visualization
+                Expanded(
+                  child: Container(
+                    height: 120,
+                    margin: EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Stack(
                       children: [
-                        Text(_format(_position),
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 12)),
-                        if (_cutSections.isNotEmpty)
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${_cutSections.length} cuts',
-                              style: TextStyle(color: Colors.red, fontSize: 11),
+                        if (_isInitialized) _buildWaveformView(),
+                        if (_duration.inMilliseconds > 0)
+                          Positioned(
+                            left: (MediaQuery.of(context).size.width - 32) *
+                                (_position.inMilliseconds /
+                                    _duration.inMilliseconds),
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              width: 2,
+                              color: Colors.white,
                             ),
                           ),
-                        Text(_format(_duration),
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 12)),
+                        if (!_isInitialized)
+                          Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(
+                                    color: Colors.deepPurpleAccent),
+                                SizedBox(height: 16),
+                                Text('Loading audio...',
+                                    style: TextStyle(color: Colors.white54)),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
-
-                    // Progress slider
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        activeTrackColor: Colors.deepPurpleAccent,
-                        inactiveTrackColor: Colors.white24,
-                        thumbColor: Colors.white,
-                        trackHeight: 4,
-                      ),
-                      child: Slider(
-                        value: _duration.inMilliseconds > 0
-                            ? _position.inMilliseconds.toDouble()
-                            : 0,
-                        max: _duration.inMilliseconds.toDouble(),
-                        onChanged: _isInitialized
-                            ? (v) => widget.controller.player
-                                .seek(Duration(milliseconds: v.toInt()))
-                            : null,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
 
-              // Selection info
-              if (_trimStart != null || _trimEnd != null)
+                // Time and controls
                 Container(
-                  margin: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  padding: EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.deepPurpleAccent.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
                     children: [
-                      Icon(Icons.content_cut,
-                          color: Colors.deepPurpleAccent, size: 16),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _trimStart != null && _trimEnd != null
-                              ? 'Selection: ${_format(_trimStart!)} - ${_format(_trimEnd!)}'
-                              : _trimStart != null
-                                  ? 'Start: ${_format(_trimStart!)}'
-                                  : 'End: ${_format(_trimEnd!)}',
-                          style: TextStyle(color: Colors.white70, fontSize: 13),
-                        ),
-                      ),
-                      IconButton(
-                        icon:
-                            Icon(Icons.clear, color: Colors.white54, size: 18),
-                        onPressed: () => setState(() {
-                          _trimStart = null;
-                          _trimEnd = null;
-                        }),
-                        padding: EdgeInsets.zero,
-                        constraints: BoxConstraints(),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // Playback controls
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.replay_10, color: Colors.white70),
-                    iconSize: 32,
-                    onPressed: _isInitialized
-                        ? () {
-                            final newPos = _position - Duration(seconds: 10);
-                            widget.controller.player.seek(newPos < Duration.zero
-                                ? Duration.zero
-                                : newPos);
-                          }
-                        : null,
-                  ),
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.deepPurpleAccent,
-                          Colors.deepPurple.shade700
+                      // Time labels
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(_format(_position),
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 12)),
+                          if (_cutSections.isNotEmpty)
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${_cutSections.length} cuts',
+                                style:
+                                    TextStyle(color: Colors.red, fontSize: 11),
+                              ),
+                            ),
+                          Text(_format(_duration),
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 12)),
                         ],
                       ),
-                    ),
-                    child: IconButton(
-                      icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow,
-                          color: Colors.white),
-                      iconSize: 40,
-                      onPressed: _isInitialized ? _togglePlay : null,
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.forward_10, color: Colors.white70),
-                    iconSize: 32,
-                    onPressed: _isInitialized
-                        ? () {
-                            final newPos = _position + Duration(seconds: 10);
-                            widget.controller.player
-                                .seek(newPos > _duration ? _duration : newPos);
-                          }
-                        : null,
-                  ),
-                ],
-              ),
 
-              // Edit controls
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _isInitialized ? _setTrimStart : null,
-                            icon: Icon(Icons.vertical_align_top, size: 18),
-                            label: Text('Mark Start'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _trimStart != null
-                                  ? Colors.green.withOpacity(0.3)
-                                  : Colors.white.withOpacity(0.1),
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor:
-                                  Colors.white.withOpacity(0.05),
-                            ),
-                          ),
+                      // Progress slider
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: Colors.deepPurpleAccent,
+                          inactiveTrackColor: Colors.white24,
+                          thumbColor: Colors.white,
+                          trackHeight: 4,
                         ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _isInitialized ? _setTrimEnd : null,
-                            icon: Icon(Icons.vertical_align_bottom, size: 18),
-                            label: Text('Mark End'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _trimEnd != null
-                                  ? Colors.green.withOpacity(0.3)
-                                  : Colors.white.withOpacity(0.1),
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor:
-                                  Colors.white.withOpacity(0.05),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: (_isInitialized &&
-                                    _trimStart != null &&
-                                    _trimEnd != null)
-                                ? _addCut
-                                : null,
-                            icon: Icon(Icons.content_cut, size: 18),
-                            label: Text('Cut Section'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red.withOpacity(0.7),
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor:
-                                  Colors.white.withOpacity(0.05),
-                            ),
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed:
-                                (_isInitialized && _cutSections.isNotEmpty)
-                                    ? _undoLastCut
-                                    : null,
-                            icon: Icon(Icons.undo, size: 18),
-                            label: Text('Undo Cut'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange.withOpacity(0.7),
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor:
-                                  Colors.white.withOpacity(0.05),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_cutSections.isNotEmpty)
-                      Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Text(
-                          'New duration: ${_format(_effectiveDuration())}',
-                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        child: Slider(
+                          value: _duration.inMilliseconds > 0
+                              ? _position.inMilliseconds.toDouble()
+                              : 0,
+                          max: _duration.inMilliseconds.toDouble(),
+                          onChanged: _isInitialized
+                              ? (v) => widget.controller.player
+                                  .seek(Duration(milliseconds: v.toInt()))
+                              : null,
                         ),
                       ),
+                    ],
+                  ),
+                ),
+
+                // Selection info
+                if (_trimStart != null || _trimEnd != null)
+                  Container(
+                    margin: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurpleAccent.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.content_cut,
+                            color: Colors.deepPurpleAccent, size: 16),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _trimStart != null && _trimEnd != null
+                                ? 'Selection: ${_format(_trimStart!)} - ${_format(_trimEnd!)}'
+                                : _trimStart != null
+                                    ? 'Start: ${_format(_trimStart!)}'
+                                    : 'End: ${_format(_trimEnd!)}',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 13),
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.clear,
+                              color: Colors.white54, size: 18),
+                          onPressed: () => setState(() {
+                            _trimStart = null;
+                            _trimEnd = null;
+                          }),
+                          padding: EdgeInsets.zero,
+                          constraints: BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // Playback controls
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.replay_10, color: Colors.white70),
+                      iconSize: 32,
+                      onPressed: _isInitialized
+                          ? () {
+                              final newPos = _position - Duration(seconds: 10);
+                              widget.controller.player.seek(
+                                  newPos < Duration.zero
+                                      ? Duration.zero
+                                      : newPos);
+                            }
+                          : null,
+                    ),
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.deepPurpleAccent,
+                            Colors.deepPurple.shade700
+                          ],
+                        ),
+                      ),
+                      child: IconButton(
+                        icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow,
+                            color: Colors.white),
+                        iconSize: 40,
+                        onPressed: _isInitialized ? _togglePlay : null,
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.forward_10, color: Colors.white70),
+                      iconSize: 32,
+                      onPressed: _isInitialized
+                          ? () {
+                              final newPos = _position + Duration(seconds: 10);
+                              widget.controller.player.seek(
+                                  newPos > _duration ? _duration : newPos);
+                            }
+                          : null,
+                    ),
                   ],
                 ),
-              ),
-            ],
-          ),
 
-          // Processing overlay
+                // Edit controls
+                Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isInitialized ? _setTrimStart : null,
+                              icon: Icon(Icons.vertical_align_top, size: 18),
+                              label: Text('Mark Start'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _trimStart != null
+                                    ? Colors.green.withOpacity(0.3)
+                                    : Colors.white.withOpacity(0.1),
+                                foregroundColor: Colors.white,
+                                disabledBackgroundColor:
+                                    Colors.white.withOpacity(0.05),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isInitialized ? _setTrimEnd : null,
+                              icon: Icon(Icons.vertical_align_bottom, size: 18),
+                              label: Text('Mark End'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _trimEnd != null
+                                    ? Colors.green.withOpacity(0.3)
+                                    : Colors.white.withOpacity(0.1),
+                                foregroundColor: Colors.white,
+                                disabledBackgroundColor:
+                                    Colors.white.withOpacity(0.05),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: (_isInitialized &&
+                                      _trimStart != null &&
+                                      _trimEnd != null)
+                                  ? _addCut
+                                  : null,
+                              icon: Icon(Icons.content_cut, size: 18),
+                              label: Text('Cut Section'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red.withOpacity(0.7),
+                                foregroundColor: Colors.white,
+                                disabledBackgroundColor:
+                                    Colors.white.withOpacity(0.05),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed:
+                                  (_isInitialized && _cutSections.isNotEmpty)
+                                      ? _undoLastCut
+                                      : null,
+                              icon: Icon(Icons.undo, size: 18),
+                              label: Text('Undo Cut'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange.withOpacity(0.7),
+                                foregroundColor: Colors.white,
+                                disabledBackgroundColor:
+                                    Colors.white.withOpacity(0.05),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_cutSections.isNotEmpty)
+                        Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text(
+                            'New duration: ${_format(_effectiveDuration())}',
+                            style:
+                                TextStyle(color: Colors.white54, fontSize: 12),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           // Processing overlay
           if (_isProcessing)
             Container(

@@ -10,6 +10,7 @@ import '../widgets/progress_slider_widget.dart';
 import '../widgets/volume_speed_controls.dart';
 import 'playlist_screen.dart';
 import '../main.dart';
+import 'recording_screen.dart';
 
 class AudioPlayerScreen extends StatefulWidget {
   // ✅ Require the shared controller
@@ -103,6 +104,34 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen>
                 ),
               ),
               SizedBox(height: 20),
+
+              ListTile(
+                leading: Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.mic, color: Colors.red, size: 24),
+                ),
+                title: Text('Voice Recording',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500)),
+                subtitle: Text('Record audio directly in app',
+                    style: TextStyle(color: Colors.white70, fontSize: 14)),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          RecordingScreen(controller: _controller),
+                    ),
+                  );
+                },
+              ),
 
               // Files App
               ListTile(
@@ -456,6 +485,7 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen>
                       SizedBox(height: 40),
 
                       // Track info
+                      // Track info
                       ListenableBuilder(
                         listenable: _controller,
                         builder: (context, child) {
@@ -463,19 +493,56 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen>
                           if (currentTrack == null) {
                             return Column(
                               children: [
-                                Text(
-                                  'No track selected',
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 18,
+                                Container(
+                                  padding: EdgeInsets.all(32),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.05),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.white12),
                                   ),
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  'Tap the + button to add audio files',
-                                  style: TextStyle(
-                                    color: Colors.white54,
-                                    fontSize: 14,
+                                  child: Column(
+                                    children: [
+                                      Icon(
+                                        Icons.library_music,
+                                        size: 64,
+                                        color: Colors.white38,
+                                      ),
+                                      SizedBox(height: 16),
+                                      Text(
+                                        'Import Your First Audio',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        'Tap the + button to add audio files\nfrom Files or Photos',
+                                        style: TextStyle(
+                                          color: Colors.white60,
+                                          fontSize: 14,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      SizedBox(height: 20),
+                                      ElevatedButton.icon(
+                                        onPressed: _showFileSourceOptions,
+                                        icon: Icon(Icons.add),
+                                        label: Text('Add Audio Files'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor:
+                                              Colors.deepPurpleAccent,
+                                          foregroundColor: Colors.white,
+                                          padding: EdgeInsets.symmetric(
+                                              horizontal: 24, vertical: 12),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(25),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
