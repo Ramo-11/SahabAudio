@@ -87,7 +87,9 @@ class _RecordingScreenState extends State<RecordingScreen>
 
   Future<String> _getRecordingPath() async {
     final directory = await getApplicationDocumentsDirectory();
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final now = DateTime.now();
+    final timestamp =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
     return '${directory.path}/recording_$timestamp.m4a';
   }
 
@@ -110,6 +112,9 @@ class _RecordingScreenState extends State<RecordingScreen>
               encoder: AudioEncoder.aacLc,
               bitRate: 128000,
               sampleRate: 44100,
+              autoGain: true,
+              echoCancel: true,
+              noiseSuppress: true,
             ),
             path: _recordingPath!);
 
@@ -203,7 +208,8 @@ class _RecordingScreenState extends State<RecordingScreen>
 
   void _showSaveDialog(String filePath) {
     final TextEditingController nameController = TextEditingController(
-      text: 'Recording ${DateTime.now().day}/${DateTime.now().month}',
+      text:
+          'Recording ${DateTime.now().month}/${DateTime.now().day} ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
     );
 
     showDialog(
@@ -468,24 +474,9 @@ class _RecordingScreenState extends State<RecordingScreen>
               Container(
                 padding: EdgeInsets.all(30),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Stop button (only when recording)
-                    if (_isRecording)
-                      Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withOpacity(0.1),
-                          border: Border.all(color: Colors.white24),
-                        ),
-                        child: IconButton(
-                          icon: Icon(Icons.stop, color: Colors.white, size: 32),
-                          onPressed: () => _stopRecording(save: true),
-                          iconSize: 60,
-                        ),
-                      ),
-
-                    // Main record/pause button
+                    // Main record/pause button (always centered)
                     Container(
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
@@ -524,8 +515,22 @@ class _RecordingScreenState extends State<RecordingScreen>
                       ),
                     ),
 
-                    // Placeholder for symmetry when not recording
-                    if (!_isRecording) SizedBox(width: 60),
+                    // Stop button appears to the right when recording
+                    if (_isRecording) ...[
+                      SizedBox(width: 40),
+                      Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.1),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: IconButton(
+                          icon: Icon(Icons.stop, color: Colors.white, size: 32),
+                          onPressed: () => _stopRecording(save: true),
+                          iconSize: 60,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

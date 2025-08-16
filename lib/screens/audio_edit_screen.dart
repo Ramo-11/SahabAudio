@@ -65,12 +65,15 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
       });
 
       _positionSub = player.positionStream.listen((p) {
-        setState(() {
-          _position = p;
-          if (_isPlaying) {
+        if (mounted) {
+          setState(() {
+            _position = p;
+          });
+          // Only skip cut sections during actual playback, not seeking
+          if (_isPlaying && !(_stateSub?.isPaused ?? false)) {
             _skipCutSections();
           }
-        });
+        }
       });
 
       _stateSub = player.playerStateStream.listen((state) {
@@ -614,6 +617,7 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
                       ),
 
                       // Progress slider
+                      // Progress slider
                       SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           activeTrackColor: Colors.deepPurpleAccent,
@@ -626,9 +630,26 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
                               ? _position.inMilliseconds.toDouble()
                               : 0,
                           max: _duration.inMilliseconds.toDouble(),
+                          onChangeStart: (_) {
+                            // Pause updates during dragging
+                            _stateSub?.pause();
+                          },
                           onChanged: _isInitialized
-                              ? (v) => widget.controller.player
-                                  .seek(Duration(milliseconds: v.toInt()))
+                              ? (v) {
+                                  // Update position immediately for smooth UI
+                                  setState(() {
+                                    _position =
+                                        Duration(milliseconds: v.toInt());
+                                  });
+                                }
+                              : null,
+                          onChangeEnd: _isInitialized
+                              ? (v) async {
+                                  // Seek and resume updates
+                                  await widget.controller.player
+                                      .seek(Duration(milliseconds: v.toInt()));
+                                  _stateSub?.resume();
+                                }
                               : null,
                         ),
                       ),
