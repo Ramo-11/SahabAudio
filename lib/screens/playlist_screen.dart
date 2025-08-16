@@ -5,6 +5,8 @@ import '../models/audio_track.dart';
 import './audio_edit_screen.dart';
 import './audio_player_screen.dart';
 import 'recording_screen.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:cross_file/cross_file.dart';
 
 // Simple folder model
 class PlaylistFolder {
@@ -517,7 +519,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
             color: Colors.white54,
             size: 18,
           ),
-          onSelected: (value) {
+          onSelected: (value) async {
             switch (value) {
               case 'play':
                 if (actualIndex != -1) {
@@ -545,6 +547,13 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                     ),
                   ),
                 );
+                break;
+              case 'share':
+                final params = ShareParams(
+                  text: 'Sharing: ${track.displayName}',
+                  files: [XFile(track.path)],
+                );
+                await SharePlus.instance.share(params);
                 break;
               case 'rename':
                 _showRenameDialog(context, actualIndex, track);
@@ -582,6 +591,16 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                   Icon(Icons.edit, color: Colors.white70, size: 18),
                   SizedBox(width: 8),
                   Text('Edit', style: TextStyle(fontSize: 14)),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'share',
+              child: Row(
+                children: [
+                  Icon(Icons.share, color: Colors.white70, size: 18),
+                  SizedBox(width: 8),
+                  Text('Share', style: TextStyle(fontSize: 14)),
                 ],
               ),
             ),
