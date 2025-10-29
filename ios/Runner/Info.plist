@@ -3,7 +3,12 @@
 <plist version="1.0">
 <dict>
 	<key>AVAudioSessionCategory</key>
-	<string>AVAudioSessionCategoryPlayAndRecord</string>
+	<string>AVAudioSessionCategoryPlayback</string>
+	<key>AVAudioSessionCategoryOptions</key>
+	<array>
+		<string>AVAudioSessionCategoryOptionAllowBluetooth</string>
+		<string>AVAudioSessionCategoryOptionAllowBluetoothA2DP</string>
+	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -80,6 +85,7 @@
 	<array>
 		<string>audio</string>
 		<string>fetch</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

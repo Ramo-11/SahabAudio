@@ -1,12 +1,14 @@
 // controllers/audio_player_controller.dart
 import 'package:audio_player_app/services/storage_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'dart:async';
+import 'dart:io' show Platform;
 import '../models/audio_track.dart';
 
 class AudioPlayerController extends ChangeNotifier {
@@ -108,7 +110,16 @@ class AudioPlayerController extends ChangeNotifier {
         androidNotificationChannelDescription: 'Audio playback notifications',
         androidNotificationIcon: 'mipmap/ic_launcher',
         androidShowNotificationBadge: true,
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: false,
       );
+
+      // Configure audio session for iOS
+      await _player
+          .setAudioSource(
+            AudioSource.uri(Uri.parse(''), tag: null),
+          )
+          .catchError((_) {});
     } catch (e) {
       print('Background audio initialization failed: $e');
     }
@@ -290,7 +301,16 @@ class AudioPlayerController extends ChangeNotifier {
       _currentIndex = index;
       final track = _playlist[index];
 
-      // Set audio source with metadata for background playback
+      Duration? trackDuration = track.duration;
+      if (trackDuration == null) {
+        try {
+          await _player.setAudioSource(AudioSource.uri(Uri.file(track.path)));
+          trackDuration = _player.duration;
+        } catch (e) {
+          print('Could not get duration: $e');
+        }
+      }
+
       await _player.setAudioSource(
         AudioSource.uri(
           Uri.file(track.path),
@@ -299,16 +319,59 @@ class AudioPlayerController extends ChangeNotifier {
             album: track.album ?? 'Unknown Album',
             title: track.displayName,
             artist: track.artist ?? 'Unknown Artist',
-            artUri: null, // You can add album art URI here
+            artUri: null,
+            duration: trackDuration,
+            playable: true,
           ),
         ),
       );
+
+      // Update lock screen with track info
+      const platform = MethodChannel('app.channel.shared.data');
+      await platform.invokeMethod('updateNowPlaying', {
+        'title': track.displayName,
+        'artist': track.artist ?? 'Unknown Artist',
+        'duration': trackDuration?.inMilliseconds.toDouble() ?? 0.0,
+        'isPlaying': _player.playing,
+      });
 
       notifyListeners();
       _saveData();
     } catch (e) {
       print('Error loading audio: $e');
     }
+  }
+
+  Future<void> play() async {
+    await _player.play();
+
+    // Update lock screen playback state
+    const platform = MethodChannel('app.channel.shared.data');
+    try {
+      await platform.invokeMethod('updatePlaybackState', {
+        'elapsedTime': _player.position.inMilliseconds.toDouble(),
+        'isPlaying': true,
+      });
+    } catch (e) {
+      print('Error updating playback state: $e');
+    }
+    notifyListeners();
+  }
+
+  Future<void> pause() async {
+    await _player.pause();
+
+    // Update lock screen playback state
+    const platform = MethodChannel('app.channel.shared.data');
+    try {
+      await platform.invokeMethod('updatePlaybackState', {
+        'elapsedTime': _player.position.inMilliseconds.toDouble(),
+        'isPlaying': false,
+      });
+    } catch (e) {
+      print('Error updating playback state: $e');
+    }
+    notifyListeners();
   }
 
   void addTrack(AudioTrack track) {

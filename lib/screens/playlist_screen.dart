@@ -7,6 +7,8 @@ import './audio_player_screen.dart';
 import 'recording_screen.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:cross_file/cross_file.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 // Simple folder model
 class PlaylistFolder {
@@ -42,6 +44,10 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     super.initState();
     _initializeFolders();
     widget.controller.addListener(_onControllerUpdate);
+    // Load folder structure after controller is ready
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadFolderStructure();
+    });
   }
 
   @override
@@ -59,6 +65,59 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   void _initializeFolders() {
     // Initialize with current tracks from controller
     unfolderedTracks = List.from(widget.controller.playlist);
+  }
+
+  Future<void> _saveFolderStructure() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Convert folders to JSON
+    final foldersJson = folders
+        .map((folder) => {
+              'id': folder.id,
+              'name': folder.name,
+              'isExpanded': folder.isExpanded,
+              'trackPaths': folder.tracks.map((track) => track.path).toList(),
+            })
+        .toList();
+
+    await prefs.setString('playlist_folders', jsonEncode(foldersJson));
+  }
+
+  Future<void> _loadFolderStructure() async {
+    final prefs = await SharedPreferences.getInstance();
+    final foldersString = prefs.getString('playlist_folders');
+
+    if (foldersString != null) {
+      try {
+        final List<dynamic> foldersJson = jsonDecode(foldersString);
+        final allTracks = widget.controller.playlist;
+
+        setState(() {
+          folders = foldersJson.map((folderData) {
+            final folder = PlaylistFolder(
+              id: folderData['id'],
+              name: folderData['name'],
+              isExpanded: folderData['isExpanded'] ?? true,
+            );
+
+            // Reconstruct tracks from paths
+            final trackPaths =
+                List<String>.from(folderData['trackPaths'] ?? []);
+            for (String path in trackPaths) {
+              final trackIndex = allTracks.indexWhere((t) => t.path == path);
+              if (trackIndex != -1) {
+                folder.tracks.add(allTracks[trackIndex]);
+              }
+            }
+            return folder;
+          }).toList();
+        });
+
+        _syncTracksWithController();
+      } catch (e) {
+        print('Error loading folder structure: $e');
+      }
+    }
   }
 
   void _syncTracksWithController() {
@@ -257,7 +316,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
 
   Widget _buildOrganizedPlaylist(BuildContext context) {
     return ListView(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 80),
       children: [
         // Folders
         ...folders.map((folder) => _buildFolder(folder)),
@@ -659,7 +718,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
             controller: nameController,
             autofocus: true,
             style: TextStyle(color: Colors.white),
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               hintText: 'Folder name',
               hintStyle: TextStyle(color: Colors.white54),
               prefixIcon: Icon(Icons.folder, color: Colors.deepPurpleAccent),
@@ -685,6 +744,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       name: nameController.text.trim(),
                     ));
                   });
+                  _saveFolderStructure();
                   Navigator.pop(context);
                 }
               },
@@ -733,6 +793,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                   setState(() {
                     folder.name = nameController.text.trim();
                   });
+                  _saveFolderStructure();
                   Navigator.pop(context);
                 }
               },
@@ -768,6 +829,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                   unfolderedTracks.addAll(folder.tracks);
                   folders.remove(folder);
                 });
+                _saveFolderStructure();
                 Navigator.pop(context);
               },
               child: Text('Delete', style: TextStyle(color: Colors.red)),
@@ -802,6 +864,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                         currentFolder.tracks.remove(track);
                         unfolderedTracks.add(track);
                       });
+                      _saveFolderStructure();
                       Navigator.pop(context);
                     },
                   ),
@@ -827,6 +890,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                           // Add to new folder
                           folder.tracks.add(track);
                         });
+                        _saveFolderStructure();
                         Navigator.pop(context);
                       },
                     )),
@@ -907,6 +971,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                       unfolderedTracks.remove(track);
                     }
                   });
+                  _saveFolderStructure();
                   Navigator.pop(context);
                 }
               },
@@ -994,6 +1059,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                             unfolderedTracks
                                 .removeWhere((t) => selectedTracks.contains(t));
                           });
+                          _saveFolderStructure();
                           Navigator.pop(context);
                         },
                   child: Text(

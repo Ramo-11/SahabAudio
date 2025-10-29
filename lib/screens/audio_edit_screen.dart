@@ -697,53 +697,136 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
                   ),
 
                 // Playback controls
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                Column(
                   children: [
-                    IconButton(
-                      icon: Icon(Icons.replay_10, color: Colors.white70),
-                      iconSize: 32,
-                      onPressed: _isInitialized
-                          ? () {
-                              final newPos = _position - Duration(seconds: 10);
-                              widget.controller.player.seek(
-                                  newPos < Duration.zero
-                                      ? Duration.zero
-                                      : newPos);
-                            }
-                          : null,
-                    ),
-                    Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.deepPurpleAccent,
-                            Colors.deepPurple.shade700
-                          ],
+                    // Coarse controls (10s)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.replay_10, color: Colors.white70),
+                          iconSize: 32,
+                          onPressed: _isInitialized
+                              ? () {
+                                  final newPos =
+                                      _position - Duration(seconds: 10);
+                                  widget.controller.player.seek(
+                                      newPos < Duration.zero
+                                          ? Duration.zero
+                                          : newPos);
+                                }
+                              : null,
                         ),
-                      ),
-                      child: IconButton(
-                        icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow,
-                            color: Colors.white),
-                        iconSize: 40,
-                        onPressed: _isInitialized ? _togglePlay : null,
-                      ),
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.deepPurpleAccent,
+                                Colors.deepPurple.shade700
+                              ],
+                            ),
+                          ),
+                          child: IconButton(
+                            icon: Icon(
+                                _isPlaying ? Icons.pause : Icons.play_arrow,
+                                color: Colors.white),
+                            iconSize: 40,
+                            onPressed: _isInitialized ? _togglePlay : null,
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.forward_10, color: Colors.white70),
+                          iconSize: 32,
+                          onPressed: _isInitialized
+                              ? () {
+                                  final newPos =
+                                      _position + Duration(seconds: 10);
+                                  widget.controller.player.seek(
+                                      newPos > _duration ? _duration : newPos);
+                                }
+                              : null,
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: Icon(Icons.forward_10, color: Colors.white70),
-                      iconSize: 32,
-                      onPressed: _isInitialized
-                          ? () {
-                              final newPos = _position + Duration(seconds: 10);
-                              widget.controller.player.seek(
-                                  newPos > _duration ? _duration : newPos);
-                            }
-                          : null,
+                    SizedBox(height: 8),
+                    // Fine controls (1s and 5s)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        TextButton.icon(
+                          onPressed: _isInitialized
+                              ? () {
+                                  final newPos =
+                                      _position - Duration(seconds: 5);
+                                  widget.controller.player.seek(
+                                      newPos < Duration.zero
+                                          ? Duration.zero
+                                          : newPos);
+                                }
+                              : null,
+                          icon: Icon(Icons.fast_rewind, size: 16),
+                          label: Text('-5s'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white60,
+                            textStyle: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: _isInitialized
+                              ? () {
+                                  final newPos =
+                                      _position - Duration(seconds: 1);
+                                  widget.controller.player.seek(
+                                      newPos < Duration.zero
+                                          ? Duration.zero
+                                          : newPos);
+                                }
+                              : null,
+                          icon: Icon(Icons.chevron_left, size: 16),
+                          label: Text('-1s'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white60,
+                            textStyle: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        SizedBox(width: 20),
+                        TextButton.icon(
+                          onPressed: _isInitialized
+                              ? () {
+                                  final newPos =
+                                      _position + Duration(seconds: 1);
+                                  widget.controller.player.seek(
+                                      newPos > _duration ? _duration : newPos);
+                                }
+                              : null,
+                          icon: Icon(Icons.chevron_right, size: 16),
+                          label: Text('+1s'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white60,
+                            textStyle: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: _isInitialized
+                              ? () {
+                                  final newPos =
+                                      _position + Duration(seconds: 5);
+                                  widget.controller.player.seek(
+                                      newPos > _duration ? _duration : newPos);
+                                }
+                              : null,
+                          icon: Icon(Icons.fast_forward, size: 16),
+                          label: Text('+5s'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white60,
+                            textStyle: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-
                 // Edit controls
                 Padding(
                   padding: EdgeInsets.all(16),

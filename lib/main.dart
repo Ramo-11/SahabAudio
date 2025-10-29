@@ -1,8 +1,8 @@
 // main.dart
+import 'package:audio_player_app/screens/playlist_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'screens/launch_screen.dart';
 import 'controllers/audio_player_controller.dart';
 
 void main() async {
@@ -26,6 +26,18 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
     _audioController = AudioPlayerController();
     _setupMethodChannel();
     _handleInitialSharedFiles();
+
+    const eventChannel = EventChannel('lockscreen.control');
+
+    eventChannel.receiveBroadcastStream().listen((event) {
+      if (event == 'skipForward') {
+        _audioController.player
+            .seek(_audioController.player.position + Duration(seconds: 10));
+      } else if (event == 'skipBackward') {
+        _audioController.player
+            .seek(_audioController.player.position - Duration(seconds: 10));
+      }
+    });
 
     // Register controller with shared file handler
     SharedFileHandler.instance.registerController(_audioController);
@@ -111,7 +123,7 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
             elevation: 0,
           ),
         ),
-        home: LaunchScreen(),
+        home: PlaylistScreen(controller: _audioController),
       ),
     );
   }
