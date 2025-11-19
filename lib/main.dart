@@ -4,13 +4,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'controllers/audio_player_controller.dart';
+import 'package:just_audio/just_audio.dart';
+
+import 'package:audio_service/audio_service.dart';
+import 'package:audio_player_app/services/audio_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(AudioPlayerApp());
+
+  // Create audio handler before the app starts
+  final audioHandler = await AudioService.init(
+    builder: () => MyAudioHandler(AudioPlayer()),
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'com.sahabsolutions.audio_player',
+      androidNotificationChannelName: 'Sahab Audio Player',
+      androidNotificationOngoing: true,
+    ),
+  );
+
+  runApp(AudioPlayerApp(audioHandler: audioHandler));
 }
 
 class AudioPlayerApp extends StatefulWidget {
+  final AudioHandler audioHandler;
+
+  AudioPlayerApp({required this.audioHandler});
+
   @override
   _AudioPlayerAppState createState() => _AudioPlayerAppState();
 }
@@ -23,21 +42,9 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
   @override
   void initState() {
     super.initState();
-    _audioController = AudioPlayerController();
+    _audioController = AudioPlayerController(widget.audioHandler);
     _setupMethodChannel();
     _handleInitialSharedFiles();
-
-    const eventChannel = EventChannel('lockscreen.control');
-
-    eventChannel.receiveBroadcastStream().listen((event) {
-      if (event == 'skipForward') {
-        _audioController.player
-            .seek(_audioController.player.position + Duration(seconds: 10));
-      } else if (event == 'skipBackward') {
-        _audioController.player
-            .seek(_audioController.player.position - Duration(seconds: 10));
-      }
-    });
 
     // Register controller with shared file handler
     SharedFileHandler.instance.registerController(_audioController);
@@ -63,12 +70,16 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
 
   void _handleInitialSharedFiles() async {
     try {
-      final String? sharedFilePath =
-          await platform.invokeMethod('getSharedData');
-      if (sharedFilePath != null && sharedFilePath.isNotEmpty) {
-        // Wait for the app to fully load, then handle the shared file
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _handleSharedFile(sharedFilePath);
+      // Expect a List, not a String
+      final dynamic sharedData = await platform.invokeMethod('getSharedData');
+
+      if (sharedData is List) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          for (var filePath in sharedData) {
+            if (filePath is String) {
+              await _handleSharedFile(filePath);
+            }
+          }
         });
       }
     } on PlatformException catch (e) {

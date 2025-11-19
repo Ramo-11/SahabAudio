@@ -1,9 +1,9 @@
 class AudioTrack {
-  final String path;
+  String path;
   String fileName;
-  final String? artist;
-  final String? album;
-  final Duration? duration;
+  String? artist;
+  String? album;
+  Duration? duration;
 
   AudioTrack({
     required this.path,
@@ -17,8 +17,23 @@ class AudioTrack {
   String get artistAlbum =>
       '${artist ?? 'Unknown Artist'} • ${album ?? 'Unknown Album'}';
 
-  // Add rename method
   void rename(String newName) {
     fileName = newName;
+  }
+
+  AudioTrack copyWith({
+    String? path,
+    String? fileName,
+    String? artist,
+    String? album,
+    Duration? duration,
+  }) {
+    return AudioTrack(
+      path: path ?? this.path,
+      fileName: fileName ?? this.fileName,
+      artist: artist ?? this.artist,
+      album: album ?? this.album,
+      duration: duration ?? this.duration,
+    );
   }
 }

@@ -1,18 +1,21 @@
 // controllers/audio_player_controller.dart
 import 'package:audio_player_app/services/storage_service.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:volume_controller/volume_controller.dart';
+import 'package:audio_service/audio_service.dart';
+import '../services/audio_handler.dart';
 import 'dart:async';
-import 'dart:io' show Platform;
 import '../models/audio_track.dart';
 
 class AudioPlayerController extends ChangeNotifier {
-  final AudioPlayer _player = AudioPlayer();
+  final AudioHandler audioHandler;
+
+  AudioPlayer get _player => (audioHandler as MyAudioHandler).player;
 
   // State variables
   List<AudioTrack> _playlist = [];
@@ -38,7 +41,7 @@ class AudioPlayerController extends ChangeNotifier {
   bool get isEqEnabled => _isEqEnabled;
   Duration? get sleepDuration => _sleepDuration;
 
-  AudioPlayerController() {
+  AudioPlayerController(this.audioHandler) {
     _setupAudioPlayer();
     _setupSystemVolumeListener();
     _loadSavedData();
@@ -85,6 +88,18 @@ class AudioPlayerController extends ChangeNotifier {
     }
   }
 
+  Future<String> _persistFile(String sourcePath, String fileName) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final newPath = '${directory.path}/$fileName';
+
+    final file = File(sourcePath);
+    if (!await file.exists()) return sourcePath;
+
+    // Copy to app documents folder
+    final newFile = await file.copy(newPath);
+    return newFile.path;
+  }
+
   Future<void> _saveData() async {
     try {
       await StorageService.savePlaylist(_playlist);
@@ -101,29 +116,6 @@ class AudioPlayerController extends ChangeNotifier {
   }
 
   void _setupAudioPlayer() async {
-    try {
-      // Initialize background audio
-      await JustAudioBackground.init(
-        androidNotificationChannelId:
-            'com.sahabsolutions.audio_player.channel.audio',
-        androidNotificationChannelName: 'Sahab Audio',
-        androidNotificationChannelDescription: 'Audio playback notifications',
-        androidNotificationIcon: 'mipmap/ic_launcher',
-        androidShowNotificationBadge: true,
-        androidNotificationOngoing: true,
-        androidStopForegroundOnPause: false,
-      );
-
-      // Configure audio session for iOS
-      await _player
-          .setAudioSource(
-            AudioSource.uri(Uri.parse(''), tag: null),
-          )
-          .catchError((_) {});
-    } catch (e) {
-      print('Background audio initialization failed: $e');
-    }
-
     // Set initial volume
     _player.setVolume(_volume);
 
@@ -174,16 +166,23 @@ class AudioPlayerController extends ChangeNotifier {
     );
 
     if (result != null && result.files.isNotEmpty) {
-      final newTracks = result.files
-          .where((file) => file.path != null)
-          .where((file) => _isAudioFile(file.name)) // Filter after selection
-          .map((file) => AudioTrack(
-                path: file.path!,
-                fileName: file.name,
-                artist: 'Unknown Artist',
-                album: 'Unknown Album',
-              ))
-          .toList();
+      final List<AudioTrack> newTracks = [];
+
+      for (final file in result.files) {
+        if (file.path == null) continue;
+        if (!_isAudioFile(file.name)) continue;
+
+        final storedPath = await _persistFile(file.path!, file.name);
+
+        newTracks.add(
+          AudioTrack(
+            path: storedPath,
+            fileName: file.name,
+            artist: 'Unknown Artist',
+            album: 'Unknown Album',
+          ),
+        );
+      }
 
       _playlist.addAll(newTracks);
 
@@ -207,8 +206,10 @@ class AudioPlayerController extends ChangeNotifier {
         // Generate a better filename
         final String fileName = _generateBetterFileName(file.name);
 
+        final savedPath = await _persistFile(file.path, fileName);
+
         final newTrack = AudioTrack(
-          path: file.path,
+          path: savedPath,
           fileName: fileName,
           artist: 'Photos',
           album: 'Media Library',
@@ -245,34 +246,40 @@ class AudioPlayerController extends ChangeNotifier {
 
   Future<void> addSharedFile(String filePath) async {
     try {
-      print('Attempting to add shared file: $filePath'); // Debug log
+      print('Attempting to add shared file: $filePath');
 
-      // Extract filename from path
       final fileName = filePath.split('/').last;
-      print('Extracted filename: $fileName'); // Debug log
 
-      // Check if it's an audio file
       if (_isAudioFile(fileName)) {
+        final original = File(filePath);
+        if (!await original.exists()) return;
+
+        final dir = await getApplicationDocumentsDirectory();
+        final ts = DateTime.now().millisecondsSinceEpoch;
+        final ext = fileName.split('.').last;
+        final base = fileName.split('.').first;
+
+        final uniqueName = '${base}_$ts.$ext';
+        final uniquePath = '${dir.path}/$uniqueName';
+
+        // *** THIS is the real fix ***
+        final copied = await original.copy(uniquePath);
+
         final newTrack = AudioTrack(
-          path: filePath,
-          fileName: fileName,
+          path: copied.path,
+          fileName: uniqueName,
           artist: 'Voice Memo',
           album: 'Shared',
         );
 
         _playlist.add(newTrack);
-        print(
-            'Added track to playlist. Total tracks: ${_playlist.length}'); // Debug log
 
-        // If this is the first track, load it
         if (_playlist.length == 1) {
           _currentIndex = 0;
           await loadTrack(0);
         }
 
         notifyListeners();
-      } else {
-        print('File is not recognized as audio: $fileName'); // Debug log
       }
     } catch (e) {
       print('Error adding shared file: $e');
@@ -314,26 +321,19 @@ class AudioPlayerController extends ChangeNotifier {
       await _player.setAudioSource(
         AudioSource.uri(
           Uri.file(track.path),
-          tag: MediaItem(
-            id: track.path,
-            album: track.album ?? 'Unknown Album',
-            title: track.displayName,
-            artist: track.artist ?? 'Unknown Artist',
-            artUri: null,
-            duration: trackDuration,
-            playable: true,
-          ),
         ),
       );
 
-      // Update lock screen with track info
-      const platform = MethodChannel('app.channel.shared.data');
-      await platform.invokeMethod('updateNowPlaying', {
-        'title': track.displayName,
-        'artist': track.artist ?? 'Unknown Artist',
-        'duration': trackDuration?.inMilliseconds.toDouble() ?? 0.0,
-        'isPlaying': _player.playing,
-      });
+      final myHandler = audioHandler as MyAudioHandler;
+      myHandler.updateMetadata(MediaItem(
+        id: track.path,
+        title: track.displayName,
+        artist: track.artist ?? 'Unknown',
+        album: track.album ?? 'Sahab Audio',
+        duration: trackDuration,
+        artUri:
+            null, // You can add Uri.file(path_to_image) if you have album art
+      ));
 
       notifyListeners();
       _saveData();
@@ -344,33 +344,11 @@ class AudioPlayerController extends ChangeNotifier {
 
   Future<void> play() async {
     await _player.play();
-
-    // Update lock screen playback state
-    const platform = MethodChannel('app.channel.shared.data');
-    try {
-      await platform.invokeMethod('updatePlaybackState', {
-        'elapsedTime': _player.position.inMilliseconds.toDouble(),
-        'isPlaying': true,
-      });
-    } catch (e) {
-      print('Error updating playback state: $e');
-    }
     notifyListeners();
   }
 
   Future<void> pause() async {
     await _player.pause();
-
-    // Update lock screen playback state
-    const platform = MethodChannel('app.channel.shared.data');
-    try {
-      await platform.invokeMethod('updatePlaybackState', {
-        'elapsedTime': _player.position.inMilliseconds.toDouble(),
-        'isPlaying': false,
-      });
-    } catch (e) {
-      print('Error updating playback state: $e');
-    }
     notifyListeners();
   }
 

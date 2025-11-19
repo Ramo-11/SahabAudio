@@ -571,6 +571,31 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen>
                                 ),
                                 textAlign: TextAlign.center,
                               ),
+                              SizedBox(height: 8),
+                              StreamBuilder<Duration?>(
+                                stream: _controller.player.durationStream,
+                                builder: (context, snapshot) {
+                                  final duration = snapshot.data ??
+                                      _controller.currentTrack?.duration;
+                                  if (duration == null)
+                                    return SizedBox.shrink();
+                                  return Container(
+                                    padding: EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      _controller.formatDuration(duration),
+                                      style: TextStyle(
+                                          color: Colors.white54,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500),
+                                    ),
+                                  );
+                                },
+                              ),
                             ],
                           );
                         },

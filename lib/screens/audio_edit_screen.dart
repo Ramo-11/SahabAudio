@@ -44,10 +44,6 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
   void initState() {
     super.initState();
     _initializePlayer();
-    // Pause the main player when entering edit mode
-    // widget.controller.player.pause();
-
-    // Create a new player for editing
   }
 
   Future<void> _initializePlayer() async {
@@ -277,22 +273,46 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
 
       if (ReturnCode.isSuccess(returnCode)) {
         if (replaceOriginal) {
-          // Replace original file
           try {
+            // 1. Get references
             final originalFile = File(widget.track.path);
             final tempFile = File(outputPath);
 
-            // Copy temp to original location
-            await tempFile.copy(widget.track.path);
+            // 2. Create a NEW path for the "original" to force cache busting
+            //    e.g., song.mp3 -> song_123456.mp3
+            final dir = path.dirname(widget.track.path);
+            final ext = path.extension(widget.track.path);
+            final nameWithoutExt = path
+                .basenameWithoutExtension(widget.track.path)
+                .split('_v')
+                .first; // clean previous versions
+            final newTimestamp = DateTime.now().millisecondsSinceEpoch;
+            final newPath = '$dir/${nameWithoutExt}_v$newTimestamp$ext';
 
-            // Delete temp file
+            // 3. Copy temp to the NEW path
+            await tempFile.copy(newPath);
+
+            // 4. Delete the OLD original file
+            if (await originalFile.exists()) {
+              await originalFile.delete();
+            }
+
+            // 5. Delete temp file
             await tempFile.delete();
 
-            // Reload the track in player
-            await Future.delayed(
-                Duration(milliseconds: 500)); // Give file system time
+            // 6. Update the Track object in the controller
+            //    We need to find the track in the playlist and update its path
+            final index = widget.controller.playlist.indexOf(widget.track);
+            if (index != -1) {
+              // You might need to add a method in your controller or AudioTrack
+              // to update the path, or create a new Track object and replace it.
+              final updatedTrack = widget.track.copyWith(path: newPath);
+              widget.controller.playlist[index] = updatedTrack;
+            }
+
+            // 7. Reload using the NEW path
+            await Future.delayed(Duration(milliseconds: 200));
             await widget.controller.loadTrack(widget.controller.currentIndex);
-            // await widget.controller.loadTrack(widget.controller.currentIndex);
 
             if (mounted) {
               Navigator.pop(context);
@@ -393,8 +413,7 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
       return '';
     }
 
-    return segments
-        .join('+'); // Return just the filter string, not the -af flag
+    return segments.join('+');
   }
 
   void _showError(String message) {
@@ -541,46 +560,44 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
                     backgroundColor: Colors.white12,
                   ),
 
-                // Waveform visualization
-                Expanded(
-                  child: Container(
-                    height: 120,
-                    margin: EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    child: Stack(
-                      children: [
-                        if (_isInitialized) _buildWaveformView(),
-                        if (_duration.inMilliseconds > 0)
-                          Positioned(
-                            left: (MediaQuery.of(context).size.width - 32) *
-                                (_position.inMilliseconds /
-                                    _duration.inMilliseconds),
-                            top: 0,
-                            bottom: 0,
-                            child: Container(
-                              width: 2,
-                              color: Colors.white,
-                            ),
+                // Waveform visualization - FIXED: Removed Expanded widget
+                Container(
+                  height: 120,
+                  margin: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Stack(
+                    children: [
+                      if (_isInitialized) _buildWaveformView(),
+                      if (_duration.inMilliseconds > 0)
+                        Positioned(
+                          left: (MediaQuery.of(context).size.width - 32) *
+                              (_position.inMilliseconds /
+                                  _duration.inMilliseconds),
+                          top: 0,
+                          bottom: 0,
+                          child: Container(
+                            width: 2,
+                            color: Colors.white,
                           ),
-                        if (!_isInitialized)
-                          Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                CircularProgressIndicator(
-                                    color: Colors.deepPurpleAccent),
-                                SizedBox(height: 16),
-                                Text('Loading audio...',
-                                    style: TextStyle(color: Colors.white54)),
-                              ],
-                            ),
+                        ),
+                      if (!_isInitialized)
+                        Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(
+                                  color: Colors.deepPurpleAccent),
+                              SizedBox(height: 16),
+                              Text('Loading audio...',
+                                  style: TextStyle(color: Colors.white54)),
+                            ],
                           ),
-                      ],
-                    ),
+                        ),
+                    ],
                   ),
                 ),
 
@@ -616,7 +633,6 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
                         ],
                       ),
 
-                      // Progress slider
                       // Progress slider
                       SliderTheme(
                         data: SliderTheme.of(context).copyWith(
