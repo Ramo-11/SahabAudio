@@ -92,8 +92,18 @@ class AudioPlayerController extends ChangeNotifier {
     final directory = await getApplicationDocumentsDirectory();
     final newPath = '${directory.path}/$fileName';
 
+    if (sourcePath == newPath) return newPath;
+
     final file = File(sourcePath);
     if (!await file.exists()) return sourcePath;
+
+    // Check if file already exists at destination to prevent overwriting/duplication errors
+    final newFileObj = File(newPath);
+    if (await newFileObj.exists()) {
+      // Optional: Generate unique name if needed, or just return existing
+      // For now, we return the path which fits the "Update" fix
+      return newPath;
+    }
 
     // Copy to app documents folder
     final newFile = await file.copy(newPath);

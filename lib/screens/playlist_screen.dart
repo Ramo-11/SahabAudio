@@ -101,12 +101,22 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
             );
 
             // Reconstruct tracks from paths
-            final trackPaths =
+            final savedPaths =
                 List<String>.from(folderData['trackPaths'] ?? []);
-            for (String path in trackPaths) {
-              final trackIndex = allTracks.indexWhere((t) => t.path == path);
-              if (trackIndex != -1) {
-                folder.tracks.add(allTracks[trackIndex]);
+
+            for (String savedPath in savedPaths) {
+              // FIX: Do not compare full paths. Compare file names.
+              // Extract filename from the saved path (e.g. "song.mp3" from "/old/path/song.mp3")
+              final savedFileName = savedPath.split('/').last;
+
+              // Find the track in the CURRENT playlist that has the same filename
+              try {
+                final matchingTrack = allTracks.firstWhere(
+                  (t) => t.fileName == savedFileName,
+                );
+                folder.tracks.add(matchingTrack);
+              } catch (e) {
+                // Track not found in main playlist (maybe deleted), skip it
               }
             }
             return folder;
