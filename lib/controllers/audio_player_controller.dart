@@ -240,6 +240,9 @@ class AudioPlayerController extends ChangeNotifier {
     if (index >= 0 && index < _playlist.length) {
       final extension = _playlist[index].fileName.split('.').last;
       _playlist[index].rename('$newName.$extension');
+
+      _saveData();
+
       notifyListeners();
     }
   }
