@@ -251,7 +251,7 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
         return;
       }
 
-      // Build command - remove preset and threads for audio (they're for video)
+      // Build command
       List<String> arguments = [
         '-i',
         widget.track.path,
@@ -274,43 +274,51 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
       if (ReturnCode.isSuccess(returnCode)) {
         if (replaceOriginal) {
           try {
-            // 1. Get references
+            // FIXED VERSION: Properly maintain edited files
             final originalFile = File(widget.track.path);
             final tempFile = File(outputPath);
 
-            // 2. Create a NEW path for the "original" to force cache busting
-            //    e.g., song.mp3 -> song_123456.mp3
-            final dir = path.dirname(widget.track.path);
-            final ext = path.extension(widget.track.path);
-            final nameWithoutExt = path
-                .basenameWithoutExtension(widget.track.path)
-                .split('_v')
-                .first; // clean previous versions
-            final newTimestamp = DateTime.now().millisecondsSinceEpoch;
-            final newPath = '$dir/${nameWithoutExt}_v$newTimestamp$ext';
+            // Get app documents directory
+            final appDir = await getApplicationDocumentsDirectory();
 
-            // 3. Copy temp to the NEW path
+            // Create versioned filename
+            final ext = path.extension(widget.track.path);
+            final baseNameWithoutExt = path
+                .basenameWithoutExtension(widget.track.fileName)
+                .split('_v')
+                .first; // Remove any existing version
+            final newTimestamp = DateTime.now().millisecondsSinceEpoch;
+            final versionedFileName =
+                '${baseNameWithoutExt}_v$newTimestamp$ext';
+            final newPath = '${appDir.path}/$versionedFileName';
+
+            // Copy edited file to new versioned path
             await tempFile.copy(newPath);
 
-            // 4. Delete the OLD original file
+            // Delete the OLD original file
             if (await originalFile.exists()) {
               await originalFile.delete();
             }
 
-            // 5. Delete temp file
+            // Delete temp file
             await tempFile.delete();
 
-            // 6. Update the Track object in the controller
-            //    We need to find the track in the playlist and update its path
+            // Update the track in the playlist
             final index = widget.controller.playlist.indexOf(widget.track);
             if (index != -1) {
-              // You might need to add a method in your controller or AudioTrack
-              // to update the path, or create a new Track object and replace it.
-              final updatedTrack = widget.track.copyWith(path: newPath);
+              final updatedTrack = widget.track.copyWith(
+                path: newPath,
+                fileName: versionedFileName,
+                originalFileName: baseNameWithoutExt + ext,
+                versionTimestamp: newTimestamp,
+              );
               widget.controller.playlist[index] = updatedTrack;
+
+              // Force save the updated playlist
+              await widget.controller.saveData();
             }
 
-            // 7. Reload using the NEW path
+            // Reload the track
             await Future.delayed(Duration(milliseconds: 200));
             await widget.controller.loadTrack(widget.controller.currentIndex);
 
@@ -318,7 +326,7 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Audio replaced successfully'),
+                  content: Text('Audio replaced and saved as version'),
                   backgroundColor: Colors.green,
                 ),
               );
@@ -328,7 +336,7 @@ class _AudioEditScreenState extends State<AudioEditScreen> {
             _showError('Failed to replace original file');
           }
         } else {
-          // Add as new track
+          // Add as new track (existing code is fine)
           final newTrack = AudioTrack(
             path: outputPath,
             fileName: path.basename(outputPath),

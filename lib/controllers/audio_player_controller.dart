@@ -1,4 +1,4 @@
-// controllers/audio_player_controller.dart
+// controllers/audio_player_controller.dart - ENHANCED VERSION
 import 'package:audio_player_app/services/storage_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
@@ -49,6 +49,9 @@ class AudioPlayerController extends ChangeNotifier {
 
   Future<void> _loadSavedData() async {
     try {
+      // First, recover any orphaned files
+      await _recoverOrphanedFiles();
+
       // Load playlist
       final savedPlaylist = await StorageService.loadPlaylist();
       if (savedPlaylist.isNotEmpty) {
@@ -84,33 +87,120 @@ class AudioPlayerController extends ChangeNotifier {
 
       notifyListeners();
     } catch (e) {
-      print('Error loading saved data: $e');
+      print('[AudioPlayerController] Error loading saved data: $e');
     }
   }
 
+  // NEW: Recover orphaned files that aren't in the playlist
+  Future<void> _recoverOrphanedFiles() async {
+    try {
+      print('[AudioPlayerController] Checking for orphaned audio files...');
+
+      final orphanedFileNames = await StorageService.findOrphanedAudioFiles();
+      if (orphanedFileNames.isEmpty) {
+        print('[AudioPlayerController] No orphaned files found');
+        return;
+      }
+
+      final directory = await getApplicationDocumentsDirectory();
+      final currentPlaylist = await StorageService.loadPlaylist();
+
+      // Get list of filenames already in playlist
+      final playlistFileNames =
+          currentPlaylist.map((track) => track.path.split('/').last).toSet();
+
+      int recoveredCount = 0;
+      for (var fileName in orphanedFileNames) {
+        // Skip if already in playlist
+        if (playlistFileNames.contains(fileName)) continue;
+
+        final filePath = '${directory.path}/$fileName';
+        final file = File(filePath);
+
+        if (await file.exists()) {
+          // Add to playlist as recovered file
+          final track = AudioTrack(
+            path: filePath,
+            fileName: fileName,
+            artist: 'Recovered',
+            album: 'Auto-recovered files',
+          );
+
+          _playlist.add(track);
+          recoveredCount++;
+          print('[AudioPlayerController] Recovered file: $fileName');
+        }
+      }
+
+      if (recoveredCount > 0) {
+        await saveData();
+        print(
+            '[AudioPlayerController] Recovered $recoveredCount orphaned files');
+      }
+    } catch (e) {
+      print('[AudioPlayerController] Error recovering orphaned files: $e');
+    }
+  }
+
+  // CRITICAL FIX: Always use filename-based persistence
   Future<String> _persistFile(String sourcePath, String fileName) async {
-    final directory = await getApplicationDocumentsDirectory();
-    final newPath = '${directory.path}/$fileName';
+    try {
+      final directory = await getApplicationDocumentsDirectory();
 
-    if (sourcePath == newPath) return newPath;
+      // Clean the filename to ensure it's valid
+      final cleanFileName = _sanitizeFileName(fileName);
+      final newPath = '${directory.path}/$cleanFileName';
 
-    final file = File(sourcePath);
-    if (!await file.exists()) return sourcePath;
+      // If source and destination are the same, just return
+      if (sourcePath == newPath) {
+        print(
+            '[AudioPlayerController] File already in correct location: $cleanFileName');
+        return newPath;
+      }
 
-    // Check if file already exists at destination to prevent overwriting/duplication errors
-    final newFileObj = File(newPath);
-    if (await newFileObj.exists()) {
-      // Optional: Generate unique name if needed, or just return existing
-      // For now, we return the path which fits the "Update" fix
-      return newPath;
+      final sourceFile = File(sourcePath);
+      if (!await sourceFile.exists()) {
+        print(
+            '[AudioPlayerController] Source file does not exist: $sourcePath');
+        return sourcePath;
+      }
+
+      // Check if destination file already exists
+      final destFile = File(newPath);
+      if (await destFile.exists()) {
+        // Generate unique name to avoid overwriting
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final ext = cleanFileName.split('.').last;
+        final baseName =
+            cleanFileName.substring(0, cleanFileName.lastIndexOf('.'));
+        final uniquePath = '${directory.path}/${baseName}_$timestamp.$ext';
+
+        print(
+            '[AudioPlayerController] File exists, creating unique copy: ${uniquePath.split('/').last}');
+        final newFile = await sourceFile.copy(uniquePath);
+        return newFile.path;
+      }
+
+      // Copy to app documents folder
+      print(
+          '[AudioPlayerController] Copying file to documents: $cleanFileName');
+      final newFile = await sourceFile.copy(newPath);
+      return newFile.path;
+    } catch (e) {
+      print('[AudioPlayerController] Error persisting file: $e');
+      return sourcePath; // Return original path if copy fails
     }
-
-    // Copy to app documents folder
-    final newFile = await file.copy(newPath);
-    return newFile.path;
   }
 
-  Future<void> _saveData() async {
+  // Helper to sanitize filenames
+  String _sanitizeFileName(String fileName) {
+    // Remove invalid characters and ensure proper extension
+    return fileName
+        .replaceAll(RegExp(r'[^\w\s\-\.]'), '_')
+        .replaceAll(RegExp(r'\s+'), '_');
+  }
+
+  Future<void> saveData() async {
     try {
       await StorageService.savePlaylist(_playlist);
       await StorageService.saveCurrentIndex(_currentIndex);
@@ -120,8 +210,9 @@ class AudioPlayerController extends ChangeNotifier {
         isShuffleEnabled: _isShuffleEnabled,
         loopMode: _loopMode.toString().split('.').last,
       );
+      print('[AudioPlayerController] Data saved successfully');
     } catch (e) {
-      print('Error saving data: $e');
+      print('[AudioPlayerController] Error saving data: $e');
     }
   }
 
@@ -201,6 +292,7 @@ class AudioPlayerController extends ChangeNotifier {
         await loadTrack(0);
       }
 
+      await saveData();
       notifyListeners();
     }
   }
@@ -230,10 +322,12 @@ class AudioPlayerController extends ChangeNotifier {
           _currentIndex = 0;
           await loadTrack(0);
         }
+
+        await saveData();
         notifyListeners();
       }
     } catch (e) {
-      print('Error picking from photos: $e');
+      print('[AudioPlayerController] Error picking from photos: $e');
     }
   }
 
@@ -251,21 +345,23 @@ class AudioPlayerController extends ChangeNotifier {
       final extension = _playlist[index].fileName.split('.').last;
       _playlist[index].rename('$newName.$extension');
 
-      _saveData();
-
+      saveData();
       notifyListeners();
     }
   }
 
   Future<void> addSharedFile(String filePath) async {
     try {
-      print('Attempting to add shared file: $filePath');
+      print('[AudioPlayerController] Adding shared file: $filePath');
 
       final fileName = filePath.split('/').last;
 
       if (_isAudioFile(fileName)) {
         final original = File(filePath);
-        if (!await original.exists()) return;
+        if (!await original.exists()) {
+          print('[AudioPlayerController] Shared file does not exist');
+          return;
+        }
 
         final dir = await getApplicationDocumentsDirectory();
         final ts = DateTime.now().millisecondsSinceEpoch;
@@ -275,7 +371,7 @@ class AudioPlayerController extends ChangeNotifier {
         final uniqueName = '${base}_$ts.$ext';
         final uniquePath = '${dir.path}/$uniqueName';
 
-        // *** THIS is the real fix ***
+        // Copy the shared file to our documents directory
         final copied = await original.copy(uniquePath);
 
         final newTrack = AudioTrack(
@@ -292,10 +388,14 @@ class AudioPlayerController extends ChangeNotifier {
           await loadTrack(0);
         }
 
+        await saveData();
         notifyListeners();
+
+        print(
+            '[AudioPlayerController] Successfully added shared file: $uniqueName');
       }
     } catch (e) {
-      print('Error adding shared file: $e');
+      print('[AudioPlayerController] Error adding shared file: $e');
     }
   }
 
@@ -321,13 +421,32 @@ class AudioPlayerController extends ChangeNotifier {
       _currentIndex = index;
       final track = _playlist[index];
 
+      // Verify file exists before loading
+      final file = File(track.path);
+      if (!await file.exists()) {
+        print('[AudioPlayerController] WARNING: File not found: ${track.path}');
+        // Try to recover by rebuilding path
+        final directory = await getApplicationDocumentsDirectory();
+        final fileName = track.path.split('/').last;
+        final recoveredPath = '${directory.path}/$fileName';
+
+        if (await File(recoveredPath).exists()) {
+          print('[AudioPlayerController] File recovered at: $recoveredPath');
+          track.path = recoveredPath; // Update the track path
+          saveData(); // Save the corrected path
+        } else {
+          print('[AudioPlayerController] Could not recover file');
+          throw Exception('File not found and could not be recovered');
+        }
+      }
+
       Duration? trackDuration = track.duration;
       if (trackDuration == null) {
         try {
           await _player.setAudioSource(AudioSource.uri(Uri.file(track.path)));
           trackDuration = _player.duration;
         } catch (e) {
-          print('Could not get duration: $e');
+          print('[AudioPlayerController] Could not get duration: $e');
         }
       }
 
@@ -344,17 +463,24 @@ class AudioPlayerController extends ChangeNotifier {
         artist: track.artist ?? 'Unknown',
         album: track.album ?? 'Sahab Audio',
         duration: trackDuration,
-        artUri:
-            null, // You can add Uri.file(path_to_image) if you have album art
+        artUri: null,
       ));
 
       notifyListeners();
-      _saveData();
+      saveData();
     } catch (e) {
-      print('Error loading audio: $e');
+      print('[AudioPlayerController] Error loading audio: $e');
+      // Remove invalid track from playlist
+      _playlist.removeAt(index);
+      if (_currentIndex >= _playlist.length) {
+        _currentIndex = _playlist.length > 0 ? _playlist.length - 1 : 0;
+      }
+      saveData();
+      notifyListeners();
     }
   }
 
+  // Rest of the methods remain the same...
   Future<void> play() async {
     await _player.play();
     notifyListeners();
@@ -374,8 +500,8 @@ class AudioPlayerController extends ChangeNotifier {
       loadTrack(0);
     }
 
+    saveData();
     notifyListeners();
-    _saveData();
   }
 
   Future<void> playNext() async {
@@ -405,7 +531,7 @@ class AudioPlayerController extends ChangeNotifier {
   void toggleShuffle() {
     _isShuffleEnabled = !_isShuffleEnabled;
     notifyListeners();
-    _saveData();
+    saveData();
   }
 
   void toggleLoop() {
@@ -422,7 +548,7 @@ class AudioPlayerController extends ChangeNotifier {
     }
     _player.setLoopMode(_loopMode);
     notifyListeners();
-    _saveData();
+    saveData();
   }
 
   void setSpeed(double speed) {
@@ -437,10 +563,10 @@ class AudioPlayerController extends ChangeNotifier {
     try {
       await VolumeController.instance.setVolume(volume);
     } catch (e) {
-      print('Error setting system volume: $e');
+      print('[AudioPlayerController] Error setting system volume: $e');
     }
     notifyListeners();
-    _saveData();
+    saveData();
   }
 
   void setSleepTimer(Duration duration) {
@@ -480,16 +606,16 @@ class AudioPlayerController extends ChangeNotifier {
       _currentIndex--;
     }
 
+    saveData();
     notifyListeners();
-    _saveData();
   }
 
   void clearPlaylist() {
     _playlist.clear();
     _currentIndex = 0;
     _player.stop();
+    saveData();
     notifyListeners();
-    _saveData();
   }
 
   String formatDuration(Duration duration) {

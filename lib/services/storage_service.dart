@@ -9,71 +9,151 @@ class StorageService {
   static const String _playlistKey = 'saved_playlist';
   static const String _currentIndexKey = 'current_index';
   static const String _settingsKey = 'app_settings';
+  static const String _migrationKey = 'storage_migration_v2';
 
+  // CRITICAL: Never save absolute paths - only save relative filenames
   static Future<void> savePlaylist(List<AudioTrack> playlist) async {
     final prefs = await SharedPreferences.getInstance();
+    final directory = await getApplicationDocumentsDirectory();
 
-    // We still check if files exist before saving, but we use the current path logic
-    final validTracks = <AudioTrack>[];
+    final playlistJson = <Map<String, dynamic>>[];
 
     for (var track in playlist) {
-      if (await File(track.path).exists()) {
-        validTracks.add(track);
+      // Extract just the filename from the full path
+      final fileName = track.path.split('/').last;
+
+      // Verify file still exists before saving
+      final filePath = '${directory.path}/$fileName';
+      if (await File(filePath).exists()) {
+        playlistJson.add({
+          // NEVER save the full path - only the filename
+          'fileName': fileName,
+          'displayName': track.fileName, // Keep the display name separate
+          'artist': track.artist,
+          'album': track.album,
+        });
       }
     }
 
-    final playlistJson = validTracks
-        .map((track) => {
-              'path': track.path, // We keep saving this for legacy reasons
-              'fileName': track.fileName, // THIS is the key field
-              'artist': track.artist,
-              'album': track.album,
-            })
-        .toList();
-
     await prefs.setString(_playlistKey, jsonEncode(playlistJson));
+    print(
+        '[StorageService] Saved ${playlistJson.length} tracks to persistent storage');
   }
 
   static Future<List<AudioTrack>> loadPlaylist() async {
     final prefs = await SharedPreferences.getInstance();
-    final playlistString = prefs.getString(_playlistKey);
+    final directory = await getApplicationDocumentsDirectory();
 
-    if (playlistString == null) return [];
+    // First, attempt migration if needed
+    await _migrateOldPlaylistIfNeeded();
+
+    final playlistString = prefs.getString(_playlistKey);
+    if (playlistString == null) {
+      print('[StorageService] No saved playlist found');
+      return [];
+    }
 
     try {
       final List<dynamic> playlistJson = jsonDecode(playlistString);
       final tracks = <AudioTrack>[];
-
-      // 1. Get the CURRENT valid documents directory
-      // This gives us the NEW UUID path (e.g., .../2222-2222/Documents)
-      final directory = await getApplicationDocumentsDirectory();
-      final String basePath = directory.path;
+      final missingFiles = <String>[];
 
       for (var trackJson in playlistJson) {
-        // We rely on the filename, which doesn't change between updates
-        String fileName = trackJson['fileName'] as String;
+        // Get the filename (not path!)
+        final String fileName = trackJson['fileName'] as String;
+        final String displayName = trackJson['displayName'] ?? fileName;
 
-        // 2. Construct the dynamic path
-        final String dynamicPath = '$basePath/$fileName';
-        final File file = File(dynamicPath);
+        // Build the current valid path
+        final String currentPath = '${directory.path}/$fileName';
+        final File file = File(currentPath);
 
-        // 3. Check if file exists at the NEW location
         if (await file.exists()) {
           tracks.add(AudioTrack(
-            path: dynamicPath, // Use the NEW valid path
-            fileName: fileName,
+            path: currentPath,
+            fileName: displayName,
             artist: trackJson['artist'] as String?,
             album: trackJson['album'] as String?,
           ));
         } else {
-          print("File not found at $dynamicPath");
+          missingFiles.add(fileName);
+          print('[StorageService] Warning: File not found: $fileName');
         }
       }
 
+      if (missingFiles.isNotEmpty) {
+        print('[StorageService] Missing files: ${missingFiles.join(', ')}');
+        // Optionally, clean up the playlist to remove missing files
+        await savePlaylist(tracks);
+      }
+
+      print('[StorageService] Loaded ${tracks.length} tracks from storage');
       return tracks;
     } catch (e) {
-      print('Error loading playlist: $e');
+      print('[StorageService] Error loading playlist: $e');
       return [];
+    }
+  }
+
+  // Migration method to fix any existing playlists with full paths
+  static Future<void> _migrateOldPlaylistIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Check if we've already migrated
+    final hasMigrated = prefs.getBool(_migrationKey) ?? false;
+    if (hasMigrated) return;
+
+    final playlistString = prefs.getString(_playlistKey);
+    if (playlistString == null) {
+      // No playlist to migrate
+      await prefs.setBool(_migrationKey, true);
+      return;
+    }
+
+    try {
+      print('[StorageService] Starting migration of old playlist format...');
+      final List<dynamic> oldPlaylistJson = jsonDecode(playlistString);
+      final directory = await getApplicationDocumentsDirectory();
+      final newPlaylistJson = <Map<String, dynamic>>[];
+
+      for (var trackJson in oldPlaylistJson) {
+        String fileName = '';
+
+        // Handle old format with 'path' field
+        if (trackJson.containsKey('path') && trackJson['path'] != null) {
+          // Extract filename from the old full path
+          final String oldPath = trackJson['path'] as String;
+          fileName = oldPath.split('/').last;
+        } else if (trackJson.containsKey('fileName')) {
+          // Already has fileName, might be partially migrated
+          fileName = trackJson['fileName'] as String;
+        }
+
+        if (fileName.isNotEmpty) {
+          // Check if file exists in current documents directory
+          final currentPath = '${directory.path}/$fileName';
+          if (await File(currentPath).exists()) {
+            newPlaylistJson.add({
+              'fileName': fileName,
+              'displayName': trackJson['fileName'] ?? fileName,
+              'artist': trackJson['artist'],
+              'album': trackJson['album'],
+            });
+          } else {
+            print(
+                '[StorageService] Migration: File not found during migration: $fileName');
+          }
+        }
+      }
+
+      // Save migrated playlist
+      await prefs.setString(_playlistKey, jsonEncode(newPlaylistJson));
+      await prefs.setBool(_migrationKey, true);
+
+      print(
+          '[StorageService] Migration complete. Migrated ${newPlaylistJson.length} tracks');
+    } catch (e) {
+      print('[StorageService] Migration failed: $e');
+      // Don't mark as migrated so we can try again next time
     }
   }
 
@@ -112,7 +192,7 @@ class StorageService {
     try {
       return jsonDecode(settingsString) as Map<String, dynamic>;
     } catch (e) {
-      print('Error loading settings: $e');
+      print('[StorageService] Error loading settings: $e');
       return null;
     }
   }
@@ -122,5 +202,32 @@ class StorageService {
     await prefs.remove(_playlistKey);
     await prefs.remove(_currentIndexKey);
     await prefs.remove(_settingsKey);
+    await prefs.remove(_migrationKey);
+  }
+
+  // Utility method to recover orphaned files
+  static Future<List<String>> findOrphanedAudioFiles() async {
+    final directory = await getApplicationDocumentsDirectory();
+    final orphanedFiles = <String>[];
+
+    try {
+      final files = await directory.list().toList();
+      final audioExtensions = ['mp3', 'm4a', 'wav', 'flac', 'aac', 'mp4'];
+
+      for (var file in files) {
+        if (file is File) {
+          final fileName = file.path.split('/').last;
+          final extension = fileName.split('.').last.toLowerCase();
+
+          if (audioExtensions.contains(extension)) {
+            orphanedFiles.add(fileName);
+          }
+        }
+      }
+    } catch (e) {
+      print('[StorageService] Error finding orphaned files: $e');
+    }
+
+    return orphanedFiles;
   }
 }
