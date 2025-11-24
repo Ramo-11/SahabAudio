@@ -19,16 +19,17 @@ class StorageService {
     final playlistJson = <Map<String, dynamic>>[];
 
     for (var track in playlist) {
-      // Extract just the filename from the full path
-      final fileName = track.path.split('/').last;
+      // Get the physical filename on disk
+      final physicalFileName = track.path.split('/').last;
 
-      // Verify file still exists before saving
-      final filePath = '${directory.path}/$fileName';
+      final filePath = '${directory.path}/$physicalFileName';
+
+      // Only save if file actually exists
       if (await File(filePath).exists()) {
         playlistJson.add({
-          // NEVER save the full path - only the filename
-          'fileName': fileName,
-          'displayName': track.fileName, // Keep the display name separate
+          'physicalFileName': physicalFileName, // The ugly system name
+          'displayName': track
+              .fileName, // The pretty user name (Track.fileName acts as display name in your model)
           'artist': track.artist,
           'album': track.album,
         });
@@ -36,124 +37,49 @@ class StorageService {
     }
 
     await prefs.setString(_playlistKey, jsonEncode(playlistJson));
-    print(
-        '[StorageService] Saved ${playlistJson.length} tracks to persistent storage');
   }
 
   static Future<List<AudioTrack>> loadPlaylist() async {
     final prefs = await SharedPreferences.getInstance();
     final directory = await getApplicationDocumentsDirectory();
 
-    // First, attempt migration if needed
-    await _migrateOldPlaylistIfNeeded();
-
     final playlistString = prefs.getString(_playlistKey);
-    if (playlistString == null) {
-      print('[StorageService] No saved playlist found');
-      return [];
-    }
+    if (playlistString == null) return [];
 
     try {
       final List<dynamic> playlistJson = jsonDecode(playlistString);
       final tracks = <AudioTrack>[];
-      final missingFiles = <String>[];
 
       for (var trackJson in playlistJson) {
-        // Get the filename (not path!)
-        final String fileName = trackJson['fileName'] as String;
-        final String displayName = trackJson['displayName'] ?? fileName;
+        // Support both old format (migrated) and new format
+        String physicalName;
+        String visibleName;
 
-        // Build the current valid path
-        final String currentPath = '${directory.path}/$fileName';
-        final File file = File(currentPath);
+        if (trackJson.containsKey('physicalFileName')) {
+          // New Modern Format
+          physicalName = trackJson['physicalFileName'];
+          visibleName = trackJson['displayName'] ?? physicalName;
+        } else {
+          // Fallback for older data
+          physicalName = trackJson['fileName'];
+          visibleName = trackJson['displayName'] ?? physicalName;
+        }
 
-        if (await file.exists()) {
+        final currentPath = '${directory.path}/$physicalName';
+
+        if (await File(currentPath).exists()) {
           tracks.add(AudioTrack(
             path: currentPath,
-            fileName: displayName,
-            artist: trackJson['artist'] as String?,
-            album: trackJson['album'] as String?,
+            fileName: visibleName, // Load the PRETTY name into the model
+            artist: trackJson['artist'],
+            album: trackJson['album'],
           ));
-        } else {
-          missingFiles.add(fileName);
-          print('[StorageService] Warning: File not found: $fileName');
         }
       }
-
-      if (missingFiles.isNotEmpty) {
-        print('[StorageService] Missing files: ${missingFiles.join(', ')}');
-        // Optionally, clean up the playlist to remove missing files
-        await savePlaylist(tracks);
-      }
-
-      print('[StorageService] Loaded ${tracks.length} tracks from storage');
       return tracks;
     } catch (e) {
-      print('[StorageService] Error loading playlist: $e');
+      print('[StorageService] Error loading: $e');
       return [];
-    }
-  }
-
-  // Migration method to fix any existing playlists with full paths
-  static Future<void> _migrateOldPlaylistIfNeeded() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    // Check if we've already migrated
-    final hasMigrated = prefs.getBool(_migrationKey) ?? false;
-    if (hasMigrated) return;
-
-    final playlistString = prefs.getString(_playlistKey);
-    if (playlistString == null) {
-      // No playlist to migrate
-      await prefs.setBool(_migrationKey, true);
-      return;
-    }
-
-    try {
-      print('[StorageService] Starting migration of old playlist format...');
-      final List<dynamic> oldPlaylistJson = jsonDecode(playlistString);
-      final directory = await getApplicationDocumentsDirectory();
-      final newPlaylistJson = <Map<String, dynamic>>[];
-
-      for (var trackJson in oldPlaylistJson) {
-        String fileName = '';
-
-        // Handle old format with 'path' field
-        if (trackJson.containsKey('path') && trackJson['path'] != null) {
-          // Extract filename from the old full path
-          final String oldPath = trackJson['path'] as String;
-          fileName = oldPath.split('/').last;
-        } else if (trackJson.containsKey('fileName')) {
-          // Already has fileName, might be partially migrated
-          fileName = trackJson['fileName'] as String;
-        }
-
-        if (fileName.isNotEmpty) {
-          // Check if file exists in current documents directory
-          final currentPath = '${directory.path}/$fileName';
-          if (await File(currentPath).exists()) {
-            newPlaylistJson.add({
-              'fileName': fileName,
-              'displayName': trackJson['fileName'] ?? fileName,
-              'artist': trackJson['artist'],
-              'album': trackJson['album'],
-            });
-          } else {
-            print(
-                '[StorageService] Migration: File not found during migration: $fileName');
-          }
-        }
-      }
-
-      // Save migrated playlist
-      await prefs.setString(_playlistKey, jsonEncode(newPlaylistJson));
-      await prefs.setBool(_migrationKey, true);
-
-      print(
-          '[StorageService] Migration complete. Migrated ${newPlaylistJson.length} tracks');
-    } catch (e) {
-      print('[StorageService] Migration failed: $e');
-      // Don't mark as migrated so we can try again next time
     }
   }
 

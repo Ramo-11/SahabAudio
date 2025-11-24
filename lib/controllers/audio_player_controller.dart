@@ -50,7 +50,7 @@ class AudioPlayerController extends ChangeNotifier {
   Future<void> _loadSavedData() async {
     try {
       // First, recover any orphaned files
-      await _recoverOrphanedFiles();
+      // await _recoverOrphanedFiles();
 
       // Load playlist
       final savedPlaylist = await StorageService.loadPlaylist();
@@ -352,48 +352,49 @@ class AudioPlayerController extends ChangeNotifier {
 
   Future<void> addSharedFile(String filePath) async {
     try {
-      print('[AudioPlayerController] Adding shared file: $filePath');
+      print('[AudioPlayerController] Processing shared file...');
 
-      final fileName = filePath.split('/').last;
+      final originalFile = File(filePath);
+      if (!await originalFile.exists()) return;
 
-      if (_isAudioFile(fileName)) {
-        final original = File(filePath);
-        if (!await original.exists()) {
-          print('[AudioPlayerController] Shared file does not exist');
-          return;
-        }
+      final dir = await getApplicationDocumentsDirectory();
 
-        final dir = await getApplicationDocumentsDirectory();
-        final ts = DateTime.now().millisecondsSinceEpoch;
-        final ext = fileName.split('.').last;
-        final base = fileName.split('.').first;
-
-        final uniqueName = '${base}_$ts.$ext';
-        final uniquePath = '${dir.path}/$uniqueName';
-
-        // Copy the shared file to our documents directory
-        final copied = await original.copy(uniquePath);
-
-        final newTrack = AudioTrack(
-          path: copied.path,
-          fileName: uniqueName,
-          artist: 'Voice Memo',
-          album: 'Shared',
-        );
-
-        _playlist.add(newTrack);
-
-        if (_playlist.length == 1) {
-          _currentIndex = 0;
-          await loadTrack(0);
-        }
-
-        await saveData();
-        notifyListeners();
-
-        print(
-            '[AudioPlayerController] Successfully added shared file: $uniqueName');
+      // 1. Determine Display Name (Clean)
+      // If file is "My_Song_2023_v2.mp3", display name becomes "My Song 2023 v2"
+      String rawName = filePath.split('/').last;
+      String displayName = rawName;
+      if (rawName.contains('.')) {
+        displayName = rawName.substring(0, rawName.lastIndexOf('.'));
       }
+      // Remove underscores for prettiness
+      displayName = displayName.replaceAll('_', ' ');
+
+      // 2. Determine Physical Name (Safe)
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final extension = rawName.split('.').last;
+      final uniquePhysicalName = 'shared_$timestamp.$extension';
+      final uniquePath = '${dir.path}/$uniquePhysicalName';
+
+      // 3. Copy
+      await originalFile.copy(uniquePath);
+
+      // 4. Add to Playlist
+      final newTrack = AudioTrack(
+        path: uniquePath,
+        fileName: displayName, // Use the CLEAN name for display
+        artist: 'Shared Audio',
+        album: 'Imports',
+      );
+
+      _playlist.add(newTrack);
+
+      if (_playlist.length == 1) {
+        _currentIndex = 0;
+        await loadTrack(0);
+      }
+
+      await saveData();
+      notifyListeners();
     } catch (e) {
       print('[AudioPlayerController] Error adding shared file: $e');
     }
@@ -608,6 +609,90 @@ class AudioPlayerController extends ChangeNotifier {
 
     saveData();
     notifyListeners();
+  }
+
+  /// safely replaces a track with an edited version without data loss
+  Future<void> replaceTrackWithEditedFile(
+      int index, String editedTempPath) async {
+    if (index < 0 || index >= _playlist.length) return;
+
+    try {
+      print('[AudioPlayerController] Starting safe file replacement...');
+
+      // 1. Stop playback to release locks
+      if (_currentIndex == index || _player.playing) {
+        await _player.stop();
+      }
+
+      final oldTrack = _playlist[index];
+      final directory = await getApplicationDocumentsDirectory();
+
+      // 2. Generate PHYSICAL Filename (Hidden from user)
+      // We MUST use a timestamp here to guarantee the OS doesn't lock the file.
+      // But the user will never see this string.
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+      // Get the extension (m4a, mp3, etc)
+      final extension = editedTempPath.split('.').last;
+
+      // Create a system-level unique name
+      // e.g. "audio_file_1715002938.m4a"
+      final newPhysicalName = 'audio_${timestamp}.$extension';
+      final newPath = '${directory.path}/$newPhysicalName';
+
+      // 3. Move the edited temp file to permanent storage
+      final editedFile = File(editedTempPath);
+      if (!await editedFile.exists()) {
+        throw Exception('Edited source file not found');
+      }
+
+      await editedFile.copy(newPath);
+      print('[AudioPlayerController] Saved physical file: $newPhysicalName');
+
+      // 4. Create the New Track Object
+      // CRITICAL: We preserve oldTrack.displayName here!
+      final newTrack = AudioTrack(
+        path: newPath,
+        fileName: oldTrack.displayName, // KEEP THE OLD CLEAN NAME
+        artist: oldTrack.artist,
+        album: oldTrack.album,
+      );
+
+      // 5. Update Playlist & Save
+      _playlist[index] = newTrack;
+      await saveData();
+
+      // 6. Reload Player
+      if (index == _currentIndex) {
+        await loadTrack(index);
+      }
+
+      // 7. Cleanup Old File
+      // We run this *after* everything is safe.
+      if (oldTrack.path != newPath) {
+        _safelyDeleteFile(oldTrack.path);
+      }
+
+      notifyListeners();
+    } catch (e) {
+      print('[AudioPlayerController] Error replacing file: $e');
+      throw e;
+    }
+  }
+
+  Future<void> _safelyDeleteFile(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+        print('[AudioPlayerController] Old file deleted successfully');
+      }
+    } catch (e) {
+      print(
+          '[AudioPlayerController] Note: Could not delete old file immediately (OS Lock). This is normal.');
+      // We do NOT throw an error here. We let the file sit.
+      // It is better to have a tiny waste of space than a crash.
+    }
   }
 
   void clearPlaylist() {

@@ -1,7 +1,7 @@
 name: audio_player_app
 description: A simple audio player with file upload and controls.
 publish_to: 'none'
-version: 1.2.0+3
+version: 1.2.1+3
 
 environment:
     sdk: '>=3.2.0 <4.0.0'
