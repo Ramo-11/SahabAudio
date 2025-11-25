@@ -321,15 +321,26 @@ class AudioPlayerController extends ChangeNotifier {
 
       await _player.setAudioSource(AudioSource.uri(Uri.file(track.path)));
 
+      // -----------------------------
+      // REQUIRED FOR LOCK SCREEN
+      // -----------------------------
       final myHandler = audioHandler as MyAudioHandler;
-      myHandler.updateMetadata(MediaItem(
+
+      final mediaItem = MediaItem(
         id: track.path,
         title: track.displayName,
         artist: track.artist ?? 'Unknown',
         album: track.album ?? 'Sahab Audio',
         duration: _player.duration,
         artUri: null,
-      ));
+      );
+
+      // Update queue (iOS lock screen requires a queue)
+      myHandler.queue.add([mediaItem]);
+
+      // Update currently playing metadata
+      myHandler.mediaItem.add(mediaItem);
+      // -----------------------------
 
       if (autoPlay) {
         await _player.play();
