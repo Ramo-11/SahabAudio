@@ -1,4 +1,3 @@
-// screens/playlist_screen.dart
 import 'package:flutter/material.dart';
 import '../controllers/audio_player_controller.dart';
 import '../models/audio_track.dart';
@@ -10,7 +9,6 @@ import 'package:cross_file/cross_file.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
-// Simple folder model
 class PlaylistFolder {
   String id;
   String name;
@@ -35,7 +33,6 @@ class PlaylistScreen extends StatefulWidget {
 }
 
 class _PlaylistScreenState extends State<PlaylistScreen> {
-  // Folder management
   List<PlaylistFolder> folders = [];
   List<AudioTrack> unfolderedTracks = [];
 
@@ -44,10 +41,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     super.initState();
     _initializeFolders();
     widget.controller.addListener(_onControllerUpdate);
-    // Load folder structure after controller is ready
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadFolderStructure();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadFolderStructure());
   }
 
   @override
@@ -57,35 +51,30 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   }
 
   void _onControllerUpdate() {
-    if (mounted) {
-      _syncTracksWithController();
-    }
+    if (mounted) _syncTracksWithController();
   }
 
   void _initializeFolders() {
-    // Initialize with current tracks from controller
     unfolderedTracks = List.from(widget.controller.playlist);
   }
 
   Future<void> _saveFolderStructure() async {
     final prefs = await SharedPreferences.getInstance();
-
-    // Convert folders to JSON
     final foldersJson = folders
         .map((folder) => {
               'id': folder.id,
               'name': folder.name,
               'isExpanded': folder.isExpanded,
-              'trackPaths': folder.tracks.map((track) => track.path).toList(),
+              'trackFileNames':
+                  folder.tracks.map((t) => t.physicalFileName).toList(),
             })
         .toList();
-
-    await prefs.setString('playlist_folders', jsonEncode(foldersJson));
+    await prefs.setString('playlist_folders_v2', jsonEncode(foldersJson));
   }
 
   Future<void> _loadFolderStructure() async {
     final prefs = await SharedPreferences.getInstance();
-    final foldersString = prefs.getString('playlist_folders');
+    final foldersString = prefs.getString('playlist_folders_v2');
 
     if (foldersString != null) {
       try {
@@ -93,31 +82,22 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
         final allTracks = widget.controller.playlist;
 
         setState(() {
-          folders = foldersJson.map((folderData) {
+          folders = foldersJson.map((data) {
             final folder = PlaylistFolder(
-              id: folderData['id'],
-              name: folderData['name'],
-              isExpanded: folderData['isExpanded'] ?? true,
+              id: data['id'],
+              name: data['name'],
+              isExpanded: data['isExpanded'] ?? true,
             );
 
-            // Reconstruct tracks from paths
-            final savedPaths =
-                List<String>.from(folderData['trackPaths'] ?? []);
-
-            for (String savedPath in savedPaths) {
-              // FIX: Do not compare full paths. Compare file names.
-              // Extract filename from the saved path (e.g. "song.mp3" from "/old/path/song.mp3")
-              final savedFileName = savedPath.split('/').last;
-
-              // Find the track in the CURRENT playlist that has the same filename
+            final savedNames = List<String>.from(
+                data['trackFileNames'] ?? data['trackPaths'] ?? []);
+            for (var name in savedNames) {
+              final fileName = name.split('/').last;
               try {
-                final matchingTrack = allTracks.firstWhere(
-                  (t) => t.fileName == savedFileName,
-                );
-                folder.tracks.add(matchingTrack);
-              } catch (e) {
-                // Track not found in main playlist (maybe deleted), skip it
-              }
+                final track =
+                    allTracks.firstWhere((t) => t.physicalFileName == fileName);
+                folder.tracks.add(track);
+              } catch (_) {}
             }
             return folder;
           }).toList();
@@ -127,39 +107,30 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       } catch (e) {
         print('Error loading folder structure: $e');
       }
+    } else {
+      _syncTracksWithController();
     }
   }
 
   void _syncTracksWithController() {
-    // Get all tracks currently in folders
-    Set<String> folderedTrackPaths = {};
+    final folderedPaths = <String>{};
     for (var folder in folders) {
       for (var track in folder.tracks) {
-        folderedTrackPaths.add(track.path);
+        folderedPaths.add(track.path);
       }
     }
 
-    // Get all tracks that should be in unfolderedTracks (not in any folder)
-    List<AudioTrack> controllerTracks = widget.controller.playlist;
-    List<AudioTrack> newUnfolderedTracks = [];
-
-    for (var track in controllerTracks) {
-      if (!folderedTrackPaths.contains(track.path)) {
-        newUnfolderedTracks.add(track);
-      }
-    }
+    final controllerTracks = widget.controller.playlist;
+    final newUnfoldered =
+        controllerTracks.where((t) => !folderedPaths.contains(t.path)).toList();
 
     setState(() {
-      unfolderedTracks = newUnfolderedTracks;
+      unfolderedTracks = newUnfoldered;
     });
 
-    // Remove tracks from folders that no longer exist in controller
-    Set<String> controllerTrackPaths =
-        controllerTracks.map((t) => t.path).toSet();
-
+    final controllerPaths = controllerTracks.map((t) => t.path).toSet();
     for (var folder in folders) {
-      folder.tracks
-          .removeWhere((track) => !controllerTrackPaths.contains(track.path));
+      folder.tracks.removeWhere((t) => !controllerPaths.contains(t.path));
     }
   }
 
@@ -177,146 +148,163 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       listenable: widget.controller,
       builder: (context, child) {
         return Scaffold(
-          backgroundColor: Colors.black,
-          appBar: AppBar(
-            title: Text(
-              'Playlist ($totalTrackCount tracks)',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            backgroundColor: Colors.transparent,
-            iconTheme: IconThemeData(color: Colors.white),
-            actions: [
-              IconButton(
-                icon: Icon(Icons.play_circle_fill, color: Colors.white),
-                tooltip: 'Open Player',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          AudioPlayerScreen(controller: widget.controller),
+          backgroundColor: const Color(0xFF0F0F1A),
+          body: CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                expandedHeight: 120,
+                floating: false,
+                pinned: true,
+                backgroundColor: const Color(0xFF0F0F1A),
+                flexibleSpace: FlexibleSpaceBar(
+                  title: Text(
+                    'Library',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 24,
                     ),
-                  );
-                },
+                  ),
+                  titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
+                ),
+                actions: [
+                  if (totalTrackCount > 0)
+                    IconButton(
+                      icon: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF8B5CF6).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.play_arrow_rounded,
+                            color: Color(0xFF8B5CF6)),
+                      ),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              AudioPlayerScreen(controller: widget.controller),
+                        ),
+                      ),
+                    ),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert_rounded,
+                        color: Colors.white54),
+                    color: const Color(0xFF1A1A2E),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'new_folder':
+                          _showCreateFolderDialog();
+                          break;
+                        case 'clear_all':
+                          _showClearPlaylistDialog();
+                          break;
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      _buildPopupItem(Icons.create_new_folder_rounded,
+                          'New Folder', 'new_folder'),
+                      if (totalTrackCount > 0)
+                        _buildPopupItem(Icons.delete_outline_rounded,
+                            'Clear All', 'clear_all',
+                            isDestructive: true),
+                    ],
+                  ),
+                  const SizedBox(width: 8),
+                ],
               ),
-              if (totalTrackCount > 0)
-                PopupMenuButton<String>(
-                  icon: Icon(Icons.more_vert, color: Colors.white),
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'new_folder':
-                        _showCreateFolderDialog();
-                        break;
-                      case 'clear_all':
-                        _showClearPlaylistDialog(context);
-                        break;
-                      case 'add_files':
-                        _showFileSourceOptions(context, null);
-                        break;
-                    }
-                  },
-                  itemBuilder: (BuildContext context) => [
-                    const PopupMenuItem(
-                      value: 'add_files',
-                      child: Row(
-                        children: [
-                          Icon(Icons.add, color: Colors.white70),
-                          SizedBox(width: 8),
-                          Text('Add More Files'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'new_folder',
-                      child: Row(
-                        children: [
-                          Icon(Icons.create_new_folder, color: Colors.white70),
-                          SizedBox(width: 8),
-                          Text('New Folder'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'clear_all',
-                      child: Row(
-                        children: [
-                          Icon(Icons.clear_all, color: Colors.red),
-                          SizedBox(width: 8),
-                          Text('Clear Playlist',
-                              style: TextStyle(color: Colors.red)),
-                        ],
-                      ),
-                    ),
-                  ],
+              if (totalTrackCount == 0)
+                SliverFillRemaining(child: _buildEmptyState())
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
+                      ...folders.map((f) => _buildFolder(f)),
+                      if (unfolderedTracks.isNotEmpty) ...[
+                        if (folders.isNotEmpty) const SizedBox(height: 24),
+                        _buildSectionHeader(
+                            'All Tracks', unfolderedTracks.length),
+                        const SizedBox(height: 12),
+                        ...unfolderedTracks
+                            .map((t) => _buildTrackItem(t, null)),
+                      ],
+                    ]),
+                  ),
                 ),
             ],
           ),
-          body: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.deepPurple.shade900.withOpacity(0.3),
-                  Colors.black,
-                  Colors.indigo.shade900.withOpacity(0.2),
-                ],
-              ),
-            ),
-            child: totalTrackCount == 0
-                ? _buildEmptyPlaylist(context)
-                : _buildOrganizedPlaylist(context),
-          ),
           floatingActionButton: FloatingActionButton(
-            onPressed: () => _showFileSourceOptions(context, null),
-            backgroundColor: Colors.deepPurpleAccent,
-            child: Icon(Icons.add, color: Colors.white),
+            onPressed: () => _showAddSourceSheet(),
+            backgroundColor: const Color(0xFF8B5CF6),
+            elevation: 8,
+            child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
           ),
         );
       },
     );
   }
 
-  Widget _buildEmptyPlaylist(BuildContext context) {
+  PopupMenuItem<String> _buildPopupItem(
+      IconData icon, String title, String value,
+      {bool isDestructive = false}) {
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon,
+              color: isDestructive ? const Color(0xFFEF4444) : Colors.white70,
+              size: 20),
+          const SizedBox(width: 12),
+          Text(title,
+              style: TextStyle(
+                  color:
+                      isDestructive ? const Color(0xFFEF4444) : Colors.white)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.queue_music,
-            size: 80,
-            color: Colors.white54,
-          ),
-          SizedBox(height: 20),
-          Text(
-            'No tracks in playlist',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              color: const Color(0xFF8B5CF6).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(30),
             ),
+            child: const Icon(Icons.library_music_rounded,
+                size: 48, color: Color(0xFF8B5CF6)),
           ),
-          SizedBox(height: 10),
-          Text(
-            'Add some audio files to get started',
+          const SizedBox(height: 24),
+          const Text(
+            'Your library is empty',
             style: TextStyle(
-              color: Colors.white70,
-              fontSize: 16,
-            ),
+                color: Colors.white, fontSize: 22, fontWeight: FontWeight.w600),
           ),
-          SizedBox(height: 30),
+          const SizedBox(height: 8),
+          Text(
+            'Add audio files to get started',
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 15),
+          ),
+          const SizedBox(height: 32),
           ElevatedButton.icon(
-            onPressed: () => _showFileSourceOptions(context, null),
-            icon: Icon(Icons.library_music),
-            label: Text('Add Audio Files'),
+            onPressed: () => _showAddSourceSheet(),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add Audio'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepPurpleAccent,
+              backgroundColor: const Color(0xFF8B5CF6),
               foregroundColor: Colors.white,
-              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(25),
-              ),
+                  borderRadius: BorderRadius.circular(14)),
             ),
           ),
         ],
@@ -324,134 +312,106 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     );
   }
 
-  Widget _buildOrganizedPlaylist(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 80),
+  Widget _buildSectionHeader(String title, int count) {
+    return Row(
       children: [
-        // Folders
-        ...folders.map((folder) => _buildFolder(folder)),
-
-        // Unfoldered tracks section
-        if (unfolderedTracks.isNotEmpty) ...[
-          if (folders.isNotEmpty)
-            Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Divider(color: Colors.white24),
-            ),
-
-          // Unfoldered tracks header
-          Container(
-            margin: EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                Icon(Icons.music_note, color: Colors.white54, size: 20),
-                SizedBox(width: 8),
-                Text(
-                  'All Tracks',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                SizedBox(width: 8),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.white12,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '${unfolderedTracks.length}',
-                    style: TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
+        Text(
+          title,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.6),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
           ),
-
-          // Unfoldered tracks
-          ...unfolderedTracks.asMap().entries.map((entry) {
-            return _buildTrackItem(entry.value, entry.key, null);
-          }).toList(),
-        ],
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            '$count',
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12),
+          ),
+        ),
       ],
     );
   }
 
   Widget _buildFolder(PlaylistFolder folder) {
     return Container(
-      margin: EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12, width: 1),
+        color: Colors.white.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
       child: Column(
         children: [
-          // Folder header
           InkWell(
-            onTap: () {
-              setState(() {
-                folder.isExpanded = !folder.isExpanded;
-              });
-            },
-            borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-            child: Container(
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.deepPurple.withOpacity(0.15),
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(12),
-                  bottom: Radius.circular(folder.isExpanded ? 0 : 12),
-                ),
-              ),
+            onTap: () => setState(() => folder.isExpanded = !folder.isExpanded),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  Icon(
-                    folder.isExpanded ? Icons.folder_open : Icons.folder,
-                    color: Colors.deepPurpleAccent,
-                    size: 24,
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8B5CF6).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      folder.isExpanded
+                          ? Icons.folder_open_rounded
+                          : Icons.folder_rounded,
+                      color: const Color(0xFF8B5CF6),
+                      size: 20,
+                    ),
                   ),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Text(
                       folder.name,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500),
                     ),
                   ),
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.deepPurpleAccent.withOpacity(0.2),
+                      color: const Color(0xFF8B5CF6).withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       '${folder.tracks.length}',
-                      style: TextStyle(
-                        color: Colors.deepPurpleAccent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(
+                          color: Color(0xFF8B5CF6),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600),
                     ),
                   ),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Icon(
-                    folder.isExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.white54,
+                    folder.isExpanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    color: Colors.white38,
                   ),
                   PopupMenuButton<String>(
-                    icon:
-                        Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                    icon: const Icon(Icons.more_vert_rounded,
+                        color: Colors.white38, size: 20),
+                    color: const Color(0xFF1A1A2E),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                     onSelected: (value) {
                       switch (value) {
-                        case 'add_to_folder':
-                          _showAddToFolderDialog(folder);
-                          break;
                         case 'rename':
                           _showRenameFolderDialog(folder);
                           break;
@@ -460,919 +420,586 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                           break;
                       }
                     },
-                    itemBuilder: (BuildContext context) => [
-                      const PopupMenuItem(
-                        value: 'add_to_folder',
-                        child: Row(
-                          children: [
-                            Icon(Icons.add, color: Colors.white70, size: 20),
-                            SizedBox(width: 8),
-                            Text('Add Tracks', style: TextStyle(fontSize: 14)),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'rename',
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit, color: Colors.white70, size: 20),
-                            SizedBox(width: 8),
-                            Text('Rename', style: TextStyle(fontSize: 14)),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete, color: Colors.red, size: 20),
-                            SizedBox(width: 8),
-                            Text('Delete Folder',
-                                style:
-                                    TextStyle(color: Colors.red, fontSize: 14)),
-                          ],
-                        ),
-                      ),
+                    itemBuilder: (_) => [
+                      _buildPopupItem(Icons.edit_rounded, 'Rename', 'rename'),
+                      _buildPopupItem(
+                          Icons.delete_outline_rounded, 'Delete', 'delete',
+                          isDestructive: true),
                     ],
                   ),
                 ],
               ),
             ),
           ),
-
-          // Folder tracks (collapsible)
-          if (folder.isExpanded && folder.tracks.isNotEmpty)
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Column(
-                children: folder.tracks.asMap().entries.map((entry) {
-                  return _buildTrackItem(entry.value, entry.key, folder);
-                }).toList(),
-              ),
-            ),
-
-          // Empty folder message
-          if (folder.isExpanded && folder.tracks.isEmpty)
-            Container(
-              padding: EdgeInsets.all(20),
-              child: Text(
-                'Empty folder - Add tracks to organize',
-                style: TextStyle(color: Colors.white38, fontSize: 14),
-              ),
-            ),
+          if (folder.isExpanded)
+            folder.tracks.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text('Empty folder',
+                        style: TextStyle(color: Colors.white.withOpacity(0.3))),
+                  )
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                    child: Column(
+                        children: folder.tracks
+                            .map((t) => _buildTrackItem(t, folder))
+                            .toList()),
+                  ),
         ],
       ),
     );
   }
 
-  Widget _buildTrackItem(
-      AudioTrack track, int localIndex, PlaylistFolder? folder) {
-    // Find actual index in controller's playlist
+  Widget _buildTrackItem(AudioTrack track, PlaylistFolder? folder) {
     final actualIndex = widget.controller.playlist.indexOf(track);
     final isCurrentTrack = actualIndex == widget.controller.currentIndex;
 
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 300),
-      margin: EdgeInsets.only(bottom: 4),
-      decoration: BoxDecoration(
-        color: isCurrentTrack
-            ? Colors.deepPurpleAccent.withOpacity(0.2)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        border: isCurrentTrack
-            ? Border.all(color: Colors.deepPurpleAccent, width: 1)
-            : null,
-      ),
-      child: ListTile(
-        dense: true,
-        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: isCurrentTrack
-                ? Colors.deepPurpleAccent
-                : Colors.deepPurple.shade700.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Icon(
-            isCurrentTrack ? Icons.play_arrow : Icons.music_note,
-            color: Colors.white,
-            size: isCurrentTrack ? 24 : 20,
-          ),
-        ),
-        title: Text(
-          track.displayName,
-          style: TextStyle(
-            color: isCurrentTrack ? Colors.white : Colors.white70,
-            fontWeight: isCurrentTrack ? FontWeight.bold : FontWeight.normal,
-            fontSize: 15,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: track.artistAlbum.isNotEmpty
-            ? Text(
-                track.artistAlbum,
-                style: TextStyle(
-                  color: isCurrentTrack ? Colors.white70 : Colors.white60,
-                  fontSize: 13,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              )
-            : null,
-        trailing: PopupMenuButton<String>(
-          icon: Icon(
-            Icons.more_vert,
-            color: Colors.white54,
-            size: 18,
-          ),
-          onSelected: (value) async {
-            switch (value) {
-              case 'play':
-                if (actualIndex != -1) {
-                  widget.controller.loadTrack(actualIndex);
-                  widget.controller.player.play();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          AudioPlayerScreen(controller: widget.controller),
-                    ),
-                  );
-                }
-                break;
-              case 'move_to_folder':
-                _showMoveToFolderDialog(track, folder);
-                break;
-              case 'edit':
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => AudioEditScreen(
-                      track: track,
-                      controller: widget.controller,
-                    ),
-                  ),
-                );
-                break;
-              case 'share':
-                final params = ShareParams(
-                  text: 'Sharing: ${track.displayName}',
-                  files: [XFile(track.path)],
-                );
-                await SharePlus.instance.share(params);
-                break;
-              case 'rename':
-                _showRenameDialog(context, actualIndex, track);
-                break;
-              case 'remove':
-                _showRemoveTrackDialog(context, actualIndex, track, folder);
-                break;
-            }
-          },
-          itemBuilder: (BuildContext context) => [
-            const PopupMenuItem(
-              value: 'play',
-              child: Row(
-                children: [
-                  Icon(Icons.play_arrow, color: Colors.white70, size: 18),
-                  SizedBox(width: 8),
-                  Text('Play', style: TextStyle(fontSize: 14)),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'move_to_folder',
-              child: Row(
-                children: [
-                  Icon(Icons.drive_file_move, color: Colors.white70, size: 18),
-                  SizedBox(width: 8),
-                  Text('Move to Folder', style: TextStyle(fontSize: 14)),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'edit',
-              child: Row(
-                children: [
-                  Icon(Icons.edit, color: Colors.white70, size: 18),
-                  SizedBox(width: 8),
-                  Text('Edit', style: TextStyle(fontSize: 14)),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'share',
-              child: Row(
-                children: [
-                  Icon(Icons.share, color: Colors.white70, size: 18),
-                  SizedBox(width: 8),
-                  Text('Share', style: TextStyle(fontSize: 14)),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'rename',
-              child: Row(
-                children: [
-                  Icon(Icons.edit, color: Colors.white70, size: 18),
-                  SizedBox(width: 8),
-                  Text('Rename', style: TextStyle(fontSize: 14)),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'remove',
-              child: Row(
-                children: [
-                  Icon(Icons.delete, color: Colors.red, size: 18),
-                  SizedBox(width: 8),
-                  Text('Remove',
-                      style: TextStyle(color: Colors.red, fontSize: 14)),
-                ],
-              ),
-            ),
-          ],
-        ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         onTap: () {
           if (actualIndex != -1) {
-            widget.controller.loadTrack(actualIndex);
-            widget.controller.player.play();
-
+            widget.controller.loadTrack(actualIndex, autoPlay: true);
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) =>
-                    AudioPlayerScreen(controller: widget.controller),
-              ),
+                  builder: (_) =>
+                      AudioPlayerScreen(controller: widget.controller)),
             );
           }
         },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: isCurrentTrack
+                ? const Color(0xFF8B5CF6).withOpacity(0.12)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: isCurrentTrack
+                ? Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.3))
+                : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: isCurrentTrack
+                      ? const Color(0xFF8B5CF6)
+                      : const Color(0xFF8B5CF6).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  isCurrentTrack
+                      ? Icons.play_arrow_rounded
+                      : Icons.music_note_rounded,
+                  color: isCurrentTrack
+                      ? Colors.white
+                      : const Color(0xFF8B5CF6).withOpacity(0.7),
+                  size: isCurrentTrack ? 26 : 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.displayName,
+                      style: TextStyle(
+                        color: isCurrentTrack
+                            ? Colors.white
+                            : Colors.white.withOpacity(0.85),
+                        fontWeight:
+                            isCurrentTrack ? FontWeight.w600 : FontWeight.w400,
+                        fontSize: 15,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (track.artist != null)
+                      Text(
+                        track.artist!,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.4), fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert_rounded,
+                    color: Colors.white.withOpacity(0.3), size: 20),
+                color: const Color(0xFF1A1A2E),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                onSelected: (value) async {
+                  switch (value) {
+                    case 'play':
+                      if (actualIndex != -1) {
+                        widget.controller
+                            .loadTrack(actualIndex, autoPlay: true);
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => AudioPlayerScreen(
+                                    controller: widget.controller)));
+                      }
+                      break;
+                    case 'edit':
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => AudioEditScreen(
+                                  track: track,
+                                  controller: widget.controller)));
+                      break;
+                    case 'move':
+                      _showMoveToFolderDialog(track, folder);
+                      break;
+                    case 'share':
+                      await SharePlus.instance
+                          .share(ShareParams(files: [XFile(track.path)]));
+                      break;
+                    case 'rename':
+                      _showRenameDialog(actualIndex, track);
+                      break;
+                    case 'remove':
+                      _showRemoveTrackDialog(actualIndex, track, folder);
+                      break;
+                  }
+                },
+                itemBuilder: (_) => [
+                  _buildPopupItem(Icons.play_arrow_rounded, 'Play', 'play'),
+                  _buildPopupItem(Icons.edit_rounded, 'Edit Audio', 'edit'),
+                  _buildPopupItem(
+                      Icons.drive_file_move_rounded, 'Move', 'move'),
+                  _buildPopupItem(Icons.share_rounded, 'Share', 'share'),
+                  _buildPopupItem(
+                      Icons.text_fields_rounded, 'Rename', 'rename'),
+                  _buildPopupItem(
+                      Icons.delete_outline_rounded, 'Remove', 'remove',
+                      isDestructive: true),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAddSourceSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(height: 24),
+            const Text('Add Audio',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 24),
+            _buildSourceOption(
+              icon: Icons.mic_rounded,
+              title: 'Record',
+              subtitle: 'Create a voice recording',
+              color: const Color(0xFFEF4444),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) =>
+                            RecordingScreen(controller: widget.controller)));
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildSourceOption(
+              icon: Icons.folder_rounded,
+              title: 'Files',
+              subtitle: 'Browse your files',
+              color: const Color(0xFF3B82F6),
+              onTap: () {
+                Navigator.pop(context);
+                widget.controller.pickAudioFiles();
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildSourceOption(
+              icon: Icons.photo_library_rounded,
+              title: 'Photos',
+              subtitle: 'Import from photo library',
+              color: const Color(0xFF10B981),
+              onTap: () {
+                Navigator.pop(context);
+                widget.controller.pickFromPhotos();
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSourceOption({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500)),
+                    Text(subtitle,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.5),
+                            fontSize: 13)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: color.withOpacity(0.5)),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   void _showCreateFolderDialog() {
-    final TextEditingController nameController = TextEditingController();
-
+    final controller = TextEditingController();
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey.shade900,
-          title:
-              Text('Create New Folder', style: TextStyle(color: Colors.white)),
-          content: TextField(
-            controller: nameController,
-            autofocus: true,
-            style: TextStyle(color: Colors.white),
-            decoration: const InputDecoration(
-              hintText: 'Folder name',
-              hintStyle: TextStyle(color: Colors.white54),
-              prefixIcon: Icon(Icons.folder, color: Colors.deepPurpleAccent),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.deepPurpleAccent),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.deepPurpleAccent),
-              ),
-            ),
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('New Folder', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Folder name',
+            hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
+            filled: true,
+            fillColor: Colors.white.withOpacity(0.05),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-            TextButton(
-              onPressed: () {
-                if (nameController.text.trim().isNotEmpty) {
-                  setState(() {
-                    folders.add(PlaylistFolder(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      name: nameController.text.trim(),
-                    ));
-                  });
-                  _saveFolderStructure();
-                  Navigator.pop(context);
-                }
-              },
-              child: Text('Create',
-                  style: TextStyle(color: Colors.deepPurpleAccent)),
-            ),
-          ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel',
+                style: TextStyle(color: Colors.white.withOpacity(0.5))),
+          ),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                setState(() {
+                  folders.add(PlaylistFolder(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    name: controller.text.trim(),
+                  ));
+                });
+                _saveFolderStructure();
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Create',
+                style: TextStyle(color: Color(0xFF8B5CF6))),
+          ),
+        ],
+      ),
     );
   }
 
   void _showRenameFolderDialog(PlaylistFolder folder) {
-    final TextEditingController nameController =
-        TextEditingController(text: folder.name);
-
+    final controller = TextEditingController(text: folder.name);
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey.shade900,
-          title: Text('Rename Folder', style: TextStyle(color: Colors.white)),
-          content: TextField(
-            controller: nameController,
-            autofocus: true,
-            style: TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              hintText: 'Folder name',
-              hintStyle: TextStyle(color: Colors.white54),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.deepPurpleAccent),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.deepPurpleAccent),
-              ),
-            ),
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title:
+            const Text('Rename Folder', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white.withOpacity(0.05),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none),
           ),
-          actions: [
-            TextButton(
+        ),
+        actions: [
+          TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-            TextButton(
-              onPressed: () {
-                if (nameController.text.trim().isNotEmpty) {
-                  setState(() {
-                    folder.name = nameController.text.trim();
-                  });
-                  _saveFolderStructure();
-                  Navigator.pop(context);
-                }
-              },
-              child: Text('Save',
-                  style: TextStyle(color: Colors.deepPurpleAccent)),
-            ),
-          ],
-        );
-      },
+              child: Text('Cancel',
+                  style: TextStyle(color: Colors.white.withOpacity(0.5)))),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                setState(() => folder.name = controller.text.trim());
+                _saveFolderStructure();
+                Navigator.pop(context);
+              }
+            },
+            child:
+                const Text('Save', style: TextStyle(color: Color(0xFF8B5CF6))),
+          ),
+        ],
+      ),
     );
   }
 
   void _showDeleteFolderDialog(PlaylistFolder folder) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey.shade900,
-          title: Text('Delete Folder', style: TextStyle(color: Colors.white)),
-          content: Text(
-            'Delete "${folder.name}"? Tracks will be moved to All Tracks.',
-            style: TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title:
+            const Text('Delete Folder?', style: TextStyle(color: Colors.white)),
+        content: Text('Tracks will be moved to All Tracks.',
+            style: TextStyle(color: Colors.white.withOpacity(0.6))),
+        actions: [
+          TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  // Move tracks back to unfoldered
-                  unfolderedTracks.addAll(folder.tracks);
-                  folders.remove(folder);
-                });
-                _saveFolderStructure();
-                Navigator.pop(context);
-              },
-              child: Text('Delete', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
+              child: Text('Cancel',
+                  style: TextStyle(color: Colors.white.withOpacity(0.5)))),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                unfolderedTracks.addAll(folder.tracks);
+                folders.remove(folder);
+              });
+              _saveFolderStructure();
+              Navigator.pop(context);
+            },
+            child: const Text('Delete',
+                style: TextStyle(color: Color(0xFFEF4444))),
+          ),
+        ],
+      ),
     );
   }
 
   void _showMoveToFolderDialog(
       AudioTrack track, PlaylistFolder? currentFolder) {
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey.shade900,
-          title: Text('Move to Folder', style: TextStyle(color: Colors.white)),
-          content: Container(
-            width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Option to move to root (All Tracks)
-                if (currentFolder != null)
-                  ListTile(
-                    leading: Icon(Icons.music_note, color: Colors.white54),
-                    title: Text('All Tracks',
-                        style: TextStyle(color: Colors.white)),
-                    onTap: () {
-                      setState(() {
-                        currentFolder.tracks.remove(track);
-                        unfolderedTracks.add(track);
-                      });
-                      _saveFolderStructure();
-                      Navigator.pop(context);
-                    },
-                  ),
-
-                // Available folders
-                ...folders.where((f) => f != currentFolder).map((folder) =>
-                    ListTile(
-                      leading:
-                          Icon(Icons.folder, color: Colors.deepPurpleAccent),
-                      title: Text(folder.name,
-                          style: TextStyle(color: Colors.white)),
-                      trailing: Text('${folder.tracks.length}',
-                          style:
-                              TextStyle(color: Colors.white54, fontSize: 12)),
-                      onTap: () {
-                        setState(() {
-                          // Remove from current location
-                          if (currentFolder != null) {
-                            currentFolder.tracks.remove(track);
-                          } else {
-                            unfolderedTracks.remove(track);
-                          }
-                          // Add to new folder
-                          folder.tracks.add(track);
-                        });
-                        _saveFolderStructure();
-                        Navigator.pop(context);
-                      },
-                    )),
-
-                // Create new folder option
-                Divider(color: Colors.white24),
-                ListTile(
-                  leading: Icon(Icons.create_new_folder, color: Colors.green),
-                  title: Text('Create New Folder',
-                      style: TextStyle(color: Colors.green)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showCreateFolderAndMoveDialog(track, currentFolder);
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showCreateFolderAndMoveDialog(
-      AudioTrack track, PlaylistFolder? currentFolder) {
-    final TextEditingController nameController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey.shade900,
-          title: Text('Create Folder & Move',
-              style: TextStyle(color: Colors.white)),
-          content: TextField(
-            controller: nameController,
-            autofocus: true,
-            style: TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              hintText: 'Folder name',
-              hintStyle: TextStyle(color: Colors.white54),
-              prefixIcon: Icon(Icons.folder, color: Colors.deepPurpleAccent),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.deepPurpleAccent),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.deepPurpleAccent),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-            TextButton(
-              onPressed: () {
-                if (nameController.text.trim().isNotEmpty) {
+      backgroundColor: const Color(0xFF1A1A2E),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Move to',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 20),
+            if (currentFolder != null)
+              ListTile(
+                leading:
+                    const Icon(Icons.music_note_rounded, color: Colors.white54),
+                title: const Text('All Tracks',
+                    style: TextStyle(color: Colors.white)),
+                onTap: () {
                   setState(() {
-                    // Create new folder with the track
-                    var newFolder = PlaylistFolder(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      name: nameController.text.trim(),
-                      tracks: [track],
-                    );
-                    folders.add(newFolder);
-
-                    // Remove from current location
-                    if (currentFolder != null) {
-                      currentFolder.tracks.remove(track);
-                    } else {
-                      unfolderedTracks.remove(track);
-                    }
+                    currentFolder.tracks.remove(track);
+                    unfolderedTracks.add(track);
                   });
                   _saveFolderStructure();
                   Navigator.pop(context);
-                }
-              },
-              child: Text('Create & Move',
-                  style: TextStyle(color: Colors.deepPurpleAccent)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showAddToFolderDialog(PlaylistFolder folder) {
-    List<AudioTrack> availableTracks = List.from(unfolderedTracks);
-    List<AudioTrack> selectedTracks = [];
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: Colors.grey.shade900,
-              title: Text('Add Tracks to ${folder.name}',
-                  style: TextStyle(color: Colors.white)),
-              content: Container(
-                width: double.maxFinite,
-                height: 400,
-                child: availableTracks.isEmpty
-                    ? Center(
-                        child: Text('No tracks available to add',
-                            style: TextStyle(color: Colors.white54)),
-                      )
-                    : ListView.builder(
-                        itemCount: availableTracks.length,
-                        itemBuilder: (context, index) {
-                          final track = availableTracks[index];
-                          final isSelected = selectedTracks.contains(track);
-
-                          return CheckboxListTile(
-                            value: isSelected,
-                            onChanged: (bool? value) {
-                              setDialogState(() {
-                                if (value == true) {
-                                  selectedTracks.add(track);
-                                } else {
-                                  selectedTracks.remove(track);
-                                }
-                              });
-                            },
-                            title: Text(
-                              track.displayName,
-                              style: TextStyle(
-                                  color: Colors.white70, fontSize: 14),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: track.artistAlbum.isNotEmpty
-                                ? Text(
-                                    track.artistAlbum,
-                                    style: TextStyle(
-                                        color: Colors.white54, fontSize: 12),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  )
-                                : null,
-                            checkColor: Colors.black,
-                            activeColor: Colors.deepPurpleAccent,
-                          );
-                        },
-                      ),
+                },
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child:
-                      Text('Cancel', style: TextStyle(color: Colors.white70)),
-                ),
-                TextButton(
-                  onPressed: selectedTracks.isEmpty
-                      ? null
-                      : () {
-                          setState(() {
-                            folder.tracks.addAll(selectedTracks);
-                            unfolderedTracks
-                                .removeWhere((t) => selectedTracks.contains(t));
-                          });
-                          _saveFolderStructure();
-                          Navigator.pop(context);
-                        },
-                  child: Text(
-                    'Add (${selectedTracks.length})',
-                    style: TextStyle(
-                      color: selectedTracks.isEmpty
-                          ? Colors.white30
-                          : Colors.deepPurpleAccent,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showFileSourceOptions(
-      BuildContext context, PlaylistFolder? targetFolder) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.grey.shade900,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ...folders.where((f) => f != currentFolder).map((f) => ListTile(
+                  leading: const Icon(Icons.folder_rounded,
+                      color: Color(0xFF8B5CF6)),
+                  title:
+                      Text(f.name, style: const TextStyle(color: Colors.white)),
+                  onTap: () {
+                    setState(() {
+                      if (currentFolder != null) {
+                        currentFolder.tracks.remove(track);
+                      } else {
+                        unfolderedTracks.remove(track);
+                      }
+                      f.tracks.add(track);
+                    });
+                    _saveFolderStructure();
+                    Navigator.pop(context);
+                  },
+                )),
+          ],
+        ),
       ),
-      builder: (BuildContext context) {
-        return Container(
-          padding: EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Choose Audio Source',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              if (targetFolder != null)
-                Container(
-                  margin: EdgeInsets.only(top: 8),
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.deepPurpleAccent.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.folder,
-                          color: Colors.deepPurpleAccent, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        'Adding to: ${targetFolder.name}',
-                        style: TextStyle(
-                            color: Colors.deepPurpleAccent, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-              SizedBox(height: 20),
-
-              // Add this after the Photos ListTile in _showFileSourceOptions:
-
-// Voice Recording
-              ListTile(
-                leading: Container(
-                  padding: EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(Icons.mic, color: Colors.red, size: 24),
-                ),
-                title: Text('Voice Recording',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500)),
-                subtitle: Text('Record audio directly in app',
-                    style: TextStyle(color: Colors.white70, fontSize: 14)),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          RecordingScreen(controller: widget.controller),
-                    ),
-                  );
-                },
-              ),
-
-              // Files App
-              ListTile(
-                leading: Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.folder, color: Colors.blue),
-                ),
-                title: Text('Files App', style: TextStyle(color: Colors.white)),
-                subtitle: Text('Browse files and folders',
-                    style: TextStyle(color: Colors.white70)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _addFilesAndMoveToFolder(
-                      targetFolder, () => widget.controller.pickAudioFiles());
-                },
-              ),
-
-              // Photos App
-              ListTile(
-                leading: Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.photo_library, color: Colors.green),
-                ),
-                title: Text('Photos', style: TextStyle(color: Colors.white)),
-                subtitle: Text('Audio files from Photos app',
-                    style: TextStyle(color: Colors.white70)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _addFilesAndMoveToFolder(
-                      targetFolder, () => widget.controller.pickFromPhotos());
-                },
-              ),
-
-              SizedBox(height: 10),
-            ],
-          ),
-        );
-      },
     );
   }
 
-  Future<void> _addFilesAndMoveToFolder(PlaylistFolder? targetFolder,
-      Future<void> Function() addFilesFunction) async {
-    // Store current playlist length
-    final int previousTrackCount = widget.controller.playlist.length;
-
-    // Add the files
-    await addFilesFunction();
-
-    // If files were added and we have a target folder
-    if (targetFolder != null &&
-        widget.controller.playlist.length > previousTrackCount) {
-      setState(() {
-        // Get the newly added tracks (tracks at the end of the playlist)
-        final newTracks =
-            widget.controller.playlist.sublist(previousTrackCount);
-
-        // Add them to the target folder
-        targetFolder.tracks.addAll(newTracks);
-
-        // Remove them from unfolderedTracks if they're there
-        for (var track in newTracks) {
-          unfolderedTracks.remove(track);
-        }
-      });
-    } else {
-      // Normal behavior - refresh the state to show new tracks
-      setState(() {
-        _syncTracksWithController();
-      });
-    }
-  }
-
-  bool _isTrackInAnyFolder(AudioTrack track) {
-    for (var folder in folders) {
-      if (folder.tracks.any((t) => t.path == track.path)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  void _showRenameDialog(BuildContext context, int index, AudioTrack track) {
-    final TextEditingController controller =
-        TextEditingController(text: track.displayName);
-
+  void _showRenameDialog(int index, AudioTrack track) {
+    final controller = TextEditingController(text: track.displayName);
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey.shade900,
-          title:
-              const Text('Rename Track', style: TextStyle(color: Colors.white)),
-          content: TextField(
-            controller: controller,
-            style: const TextStyle(color: Colors.white),
-            decoration: const InputDecoration(
-              hintText: 'Enter new name',
-              hintStyle: TextStyle(color: Colors.white54),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.deepPurpleAccent),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.deepPurpleAccent),
-              ),
-            ),
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Rename', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white.withOpacity(0.05),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none),
           ),
-          actions: [
-            TextButton(
+        ),
+        actions: [
+          TextButton(
               onPressed: () => Navigator.pop(context),
-              child:
-                  const Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-            TextButton(
-              onPressed: () {
-                if (controller.text.trim().isNotEmpty && index != -1) {
-                  widget.controller.renameTrack(index, controller.text.trim());
-                  Navigator.pop(context);
-                }
-              },
-              child: const Text('Save',
-                  style: TextStyle(color: Colors.deepPurpleAccent)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showRemoveTrackDialog(BuildContext context, int index, AudioTrack track,
-      PlaylistFolder? folder) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey.shade900,
-          title: Text('Remove Track', style: TextStyle(color: Colors.white)),
-          content: Text(
-            'Remove "${track.displayName}" from playlist?',
-            style: TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  // Remove from folder or unfoldered list
-                  if (folder != null) {
-                    folder.tracks.remove(track);
-                  } else {
-                    unfolderedTracks.remove(track);
-                  }
-                });
-                // Remove from main controller
-                if (index != -1) {
-                  widget.controller.removeTrack(index);
-                }
+              child: Text('Cancel',
+                  style: TextStyle(color: Colors.white.withOpacity(0.5)))),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty && index != -1) {
+                widget.controller.renameTrack(index, controller.text.trim());
                 Navigator.pop(context);
-              },
-              child: Text('Remove', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
+              }
+            },
+            child:
+                const Text('Save', style: TextStyle(color: Color(0xFF8B5CF6))),
+          ),
+        ],
+      ),
     );
   }
 
-  void _showClearPlaylistDialog(BuildContext context) {
+  void _showRemoveTrackDialog(
+      int index, AudioTrack track, PlaylistFolder? folder) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey.shade900,
-          title: Text('Clear Playlist', style: TextStyle(color: Colors.white)),
-          content: const Text(
-            'Remove all tracks and folders from playlist?',
-            style: TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title:
+            const Text('Remove Track?', style: TextStyle(color: Colors.white)),
+        content: Text(track.displayName,
+            style: TextStyle(color: Colors.white.withOpacity(0.6))),
+        actions: [
+          TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  folders.clear();
-                  unfolderedTracks.clear();
-                });
-                widget.controller.clearPlaylist();
-                Navigator.pop(context);
-              },
-              child: Text('Clear All', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
+              child: Text('Cancel',
+                  style: TextStyle(color: Colors.white.withOpacity(0.5)))),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                if (folder != null) {
+                  folder.tracks.remove(track);
+                } else {
+                  unfolderedTracks.remove(track);
+                }
+              });
+              if (index != -1) widget.controller.removeTrack(index);
+              Navigator.pop(context);
+            },
+            child: const Text('Remove',
+                style: TextStyle(color: Color(0xFFEF4444))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showClearPlaylistDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title:
+            const Text('Clear Library?', style: TextStyle(color: Colors.white)),
+        content: Text('This will remove all tracks and folders.',
+            style: TextStyle(color: Colors.white.withOpacity(0.6))),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel',
+                  style: TextStyle(color: Colors.white.withOpacity(0.5)))),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                folders.clear();
+                unfolderedTracks.clear();
+              });
+              widget.controller.clearPlaylist();
+              Navigator.pop(context);
+            },
+            child: const Text('Clear All',
+                style: TextStyle(color: Color(0xFFEF4444))),
+          ),
+        ],
+      ),
     );
   }
 }

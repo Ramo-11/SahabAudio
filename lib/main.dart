@@ -1,18 +1,15 @@
-// main.dart
 import 'package:audio_player_app/screens/playlist_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'controllers/audio_player_controller.dart';
 import 'package:just_audio/just_audio.dart';
-
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_player_app/services/audio_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Create audio handler before the app starts
   final audioHandler = await AudioService.init(
     builder: () => MyAudioHandler(AudioPlayer()),
     config: const AudioServiceConfig(
@@ -28,7 +25,8 @@ void main() async {
 class AudioPlayerApp extends StatefulWidget {
   final AudioHandler audioHandler;
 
-  AudioPlayerApp({required this.audioHandler});
+  const AudioPlayerApp({Key? key, required this.audioHandler})
+      : super(key: key);
 
   @override
   _AudioPlayerAppState createState() => _AudioPlayerAppState();
@@ -45,8 +43,6 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
     _audioController = AudioPlayerController(widget.audioHandler);
     _setupMethodChannel();
     _handleInitialSharedFiles();
-
-    // Register controller with shared file handler
     SharedFileHandler.instance.registerController(_audioController);
   }
 
@@ -57,7 +53,6 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
   }
 
   void _setupMethodChannel() {
-    // Set up method channel to receive shared files from iOS
     platform.setMethodCallHandler((call) async {
       if (call.method == "onSharedFile") {
         final String? filePath = call.arguments as String?;
@@ -70,7 +65,6 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
 
   void _handleInitialSharedFiles() async {
     try {
-      // Expect a List, not a String
       final dynamic sharedData = await platform.invokeMethod('getSharedData');
 
       if (sharedData is List) {
@@ -88,27 +82,24 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
   }
 
   Future<void> _handleSharedFile(String filePath) async {
-    // Show immediate feedback
     final context = navigatorKey.currentContext;
     if (context != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Voice memo received! Adding to playlist...'),
-          backgroundColor: Colors.deepPurpleAccent,
+          content: Text('Adding audio file...'),
+          backgroundColor: Color(0xFF8B5CF6),
           duration: Duration(seconds: 2),
         ),
       );
     }
 
-    // Use the SharedFileHandler singleton to process the file
     await SharedFileHandler.instance.handleSharedFile(filePath);
 
-    // Show success feedback
     if (context != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Voice memo added to playlist successfully!'),
-          backgroundColor: Colors.green,
+          content: Text('Audio added to library'),
+          backgroundColor: Color(0xFF10B981),
           duration: Duration(seconds: 2),
         ),
       );
@@ -121,14 +112,15 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
       value: _audioController,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'Sahab Audio Player',
+        title: 'Sahab Audio',
         navigatorKey: navigatorKey,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.deepPurple,
+            seedColor: const Color(0xFF8B5CF6),
             brightness: Brightness.dark,
           ),
           useMaterial3: true,
+          scaffoldBackgroundColor: const Color(0xFF0F0F1A),
           appBarTheme: const AppBarTheme(
             backgroundColor: Colors.transparent,
             elevation: 0,
@@ -140,7 +132,6 @@ class _AudioPlayerAppState extends State<AudioPlayerApp> {
   }
 }
 
-// Singleton class to help with global controller access
 class SharedFileHandler {
   static SharedFileHandler? _instance;
   static SharedFileHandler get instance {
@@ -151,12 +142,11 @@ class SharedFileHandler {
   SharedFileHandler._internal();
 
   AudioPlayerController? _controller;
-  List<String> _pendingFiles = [];
+  final List<String> _pendingFiles = [];
 
   void registerController(AudioPlayerController controller) {
     _controller = controller;
 
-    // Process any pending shared files
     if (_pendingFiles.isNotEmpty) {
       for (String filePath in _pendingFiles) {
         _controller!.addSharedFile(filePath);

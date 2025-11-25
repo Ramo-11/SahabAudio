@@ -1,40 +1,38 @@
 class AudioTrack {
   String path;
-  String fileName;
+  String _displayName;
   String? artist;
   String? album;
   Duration? duration;
-  String? originalFileName; // NEW: Track the original base name
-  int? versionTimestamp; // NEW: Track version for edited files
 
   AudioTrack({
     required this.path,
-    required this.fileName,
+    required String fileName,
     this.artist,
     this.album,
     this.duration,
-    this.originalFileName,
-    this.versionTimestamp,
-  });
+  }) : _displayName = _cleanDisplayName(fileName);
 
-  // NEW: Get base name without version suffix
-  String get baseFileName {
-    if (originalFileName != null) return originalFileName!;
-
-    // Extract base name by removing version suffix if present
-    final match = RegExp(r'^(.+?)_v\d+(\.\w+)$').firstMatch(fileName);
-    if (match != null) {
-      return '${match.group(1)}${match.group(2)}';
+  static String _cleanDisplayName(String name) {
+    String clean = name;
+    if (clean.contains('.')) {
+      clean = clean.substring(0, clean.lastIndexOf('.'));
     }
-    return fileName;
+    clean = clean.replaceAll('_', ' ');
+    return clean.trim();
   }
 
-  String get displayName => fileName.replaceAll(RegExp(r'\.[^.]*$'), '');
+  String get physicalFileName => path.split('/').last;
+
+  String get displayName => _displayName;
+
+  String get fileName => _displayName;
+
   String get artistAlbum =>
       '${artist ?? 'Unknown Artist'} • ${album ?? 'Unknown Album'}';
 
   void rename(String newName) {
-    fileName = newName;
+    _displayName = newName.replaceAll(RegExp(r'\.[^.]*$'), '');
   }
 
   AudioTrack copyWith({
@@ -43,41 +41,40 @@ class AudioTrack {
     String? artist,
     String? album,
     Duration? duration,
-    String? originalFileName,
-    int? versionTimestamp,
   }) {
-    return AudioTrack(
+    final track = AudioTrack(
       path: path ?? this.path,
-      fileName: fileName ?? this.fileName,
+      fileName: fileName ?? _displayName,
       artist: artist ?? this.artist,
       album: album ?? this.album,
       duration: duration ?? this.duration,
-      originalFileName: originalFileName ?? this.originalFileName,
-      versionTimestamp: versionTimestamp ?? this.versionTimestamp,
     );
+    if (fileName == null) {
+      track._displayName = _displayName;
+    }
+    return track;
   }
 
-  // NEW: Convert to JSON for storage
   Map<String, dynamic> toJson() {
     return {
-      'fileName': path.split('/').last, // Store only filename
-      'displayName': fileName,
+      'physicalFileName': physicalFileName,
+      'displayName': _displayName,
       'artist': artist,
       'album': album,
-      'originalFileName': originalFileName,
-      'versionTimestamp': versionTimestamp,
     };
   }
 
-  // NEW: Create from JSON
-  static AudioTrack fromJson(Map<String, dynamic> json, String fullPath) {
-    return AudioTrack(
+  static AudioTrack fromJson(Map<String, dynamic> json, String basePath) {
+    final physicalName = json['physicalFileName'] ?? json['fileName'] ?? '';
+    final fullPath = '$basePath/$physicalName';
+
+    final track = AudioTrack(
       path: fullPath,
-      fileName: json['displayName'] ?? json['fileName'],
+      fileName: json['displayName'] ?? physicalName,
       artist: json['artist'],
       album: json['album'],
-      originalFileName: json['originalFileName'],
-      versionTimestamp: json['versionTimestamp'],
     );
+    track._displayName = json['displayName'] ?? _cleanDisplayName(physicalName);
+    return track;
   }
 }

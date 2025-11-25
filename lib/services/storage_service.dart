@@ -1,4 +1,3 @@
-// services/storage_service.dart
 import 'dart:convert';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,79 +5,80 @@ import 'package:path_provider/path_provider.dart';
 import '../models/audio_track.dart';
 
 class StorageService {
-  static const String _playlistKey = 'saved_playlist';
+  static const String _playlistKey = 'saved_playlist_v3';
   static const String _currentIndexKey = 'current_index';
   static const String _settingsKey = 'app_settings';
-  static const String _migrationKey = 'storage_migration_v2';
 
-  // CRITICAL: Never save absolute paths - only save relative filenames
-  static Future<void> savePlaylist(List<AudioTrack> playlist) async {
-    final prefs = await SharedPreferences.getInstance();
+  static Future<String> get _documentsPath async {
     final directory = await getApplicationDocumentsDirectory();
+    return directory.path;
+  }
 
-    final playlistJson = <Map<String, dynamic>>[];
+  static Future<void> savePlaylist(List<AudioTrack> playlist) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final basePath = await _documentsPath;
 
-    for (var track in playlist) {
-      // Get the physical filename on disk
-      final physicalFileName = track.path.split('/').last;
+      final playlistJson = <Map<String, dynamic>>[];
 
-      final filePath = '${directory.path}/$physicalFileName';
+      for (var track in playlist) {
+        final physicalName = track.physicalFileName;
+        final filePath = '$basePath/$physicalName';
 
-      // Only save if file actually exists
-      if (await File(filePath).exists()) {
-        playlistJson.add({
-          'physicalFileName': physicalFileName, // The ugly system name
-          'displayName': track
-              .fileName, // The pretty user name (Track.fileName acts as display name in your model)
-          'artist': track.artist,
-          'album': track.album,
-        });
+        if (await File(filePath).exists()) {
+          playlistJson.add({
+            'physicalFileName': physicalName,
+            'displayName': track.displayName,
+            'artist': track.artist,
+            'album': track.album,
+          });
+        } else {
+          print('[StorageService] Skipping missing file: $physicalName');
+        }
       }
-    }
 
-    await prefs.setString(_playlistKey, jsonEncode(playlistJson));
+      await prefs.setString(_playlistKey, jsonEncode(playlistJson));
+      print('[StorageService] Saved ${playlistJson.length} tracks');
+    } catch (e) {
+      print('[StorageService] Error saving playlist: $e');
+    }
   }
 
   static Future<List<AudioTrack>> loadPlaylist() async {
-    final prefs = await SharedPreferences.getInstance();
-    final directory = await getApplicationDocumentsDirectory();
-
-    final playlistString = prefs.getString(_playlistKey);
-    if (playlistString == null) return [];
-
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final basePath = await _documentsPath;
+
+      final playlistString = prefs.getString(_playlistKey);
+      if (playlistString == null || playlistString.isEmpty) {
+        print('[StorageService] No saved playlist found');
+        return [];
+      }
+
       final List<dynamic> playlistJson = jsonDecode(playlistString);
       final tracks = <AudioTrack>[];
 
-      for (var trackJson in playlistJson) {
-        // Support both old format (migrated) and new format
-        String physicalName;
-        String visibleName;
+      for (var json in playlistJson) {
+        final physicalName = json['physicalFileName'] ?? json['fileName'] ?? '';
+        if (physicalName.isEmpty) continue;
 
-        if (trackJson.containsKey('physicalFileName')) {
-          // New Modern Format
-          physicalName = trackJson['physicalFileName'];
-          visibleName = trackJson['displayName'] ?? physicalName;
+        final filePath = '$basePath/$physicalName';
+
+        if (await File(filePath).exists()) {
+          final track = AudioTrack.fromJson(
+            json as Map<String, dynamic>,
+            basePath,
+          );
+          tracks.add(track);
         } else {
-          // Fallback for older data
-          physicalName = trackJson['fileName'];
-          visibleName = trackJson['displayName'] ?? physicalName;
-        }
-
-        final currentPath = '${directory.path}/$physicalName';
-
-        if (await File(currentPath).exists()) {
-          tracks.add(AudioTrack(
-            path: currentPath,
-            fileName: visibleName, // Load the PRETTY name into the model
-            artist: trackJson['artist'],
-            album: trackJson['album'],
-          ));
+          print('[StorageService] File not found on load: $physicalName');
         }
       }
+
+      print('[StorageService] Loaded ${tracks.length} tracks');
       return tracks;
     } catch (e) {
-      print('[StorageService] Error loading: $e');
+      print('[StorageService] Error loading playlist: $e');
       return [];
     }
   }
@@ -112,7 +112,6 @@ class StorageService {
   static Future<Map<String, dynamic>?> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final settingsString = prefs.getString(_settingsKey);
-
     if (settingsString == null) return null;
 
     try {
@@ -128,32 +127,5 @@ class StorageService {
     await prefs.remove(_playlistKey);
     await prefs.remove(_currentIndexKey);
     await prefs.remove(_settingsKey);
-    await prefs.remove(_migrationKey);
-  }
-
-  // Utility method to recover orphaned files
-  static Future<List<String>> findOrphanedAudioFiles() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final orphanedFiles = <String>[];
-
-    try {
-      final files = await directory.list().toList();
-      final audioExtensions = ['mp3', 'm4a', 'wav', 'flac', 'aac', 'mp4'];
-
-      for (var file in files) {
-        if (file is File) {
-          final fileName = file.path.split('/').last;
-          final extension = fileName.split('.').last.toLowerCase();
-
-          if (audioExtensions.contains(extension)) {
-            orphanedFiles.add(fileName);
-          }
-        }
-      }
-    } catch (e) {
-      print('[StorageService] Error finding orphaned files: $e');
-    }
-
-    return orphanedFiles;
   }
 }
